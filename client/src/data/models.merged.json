@@ -114,12 +114,12 @@
     "aggregation": {
       "source_file": "models.json",
       "raw_records": 91,
-      "merged_models": 70,
+      "merged_models": 74,
       "matching_strategy": "normalized platform model id plus explicit provider-prefix aliases",
       "canonical_key_note": "Shared fields live at model root; platform-specific fields live under platforms.<platform>.",
-      "total": 70
+      "total": 74
     },
-    "last_synced_at": "2026-09-20T23:53:24Z"
+    "last_synced_at": "2026-09-22T05:46:07Z"
   },
   "models": {
     "claude-fable-5": {
@@ -3763,6 +3763,45 @@
         "commandcode.ai/docs/resources/pricing-limits"
       ]
     },
+    "grok-4-7": {
+      "key": "grok-4-7",
+      "name": "Grok 4.7",
+      "provider": "xAI",
+      "category": "premium",
+      "context_size": 256000,
+      "platforms": {
+        "cmdc": {
+          "id": "xai/grok-4.7",
+          "protocols": [
+            "chat"
+          ],
+          "pricing": {
+            "currency": "USD",
+            "input": 3,
+            "output": 15,
+            "cache_read": 0.75,
+            "tiers": []
+          },
+          "source": "commandcode.ai/docs/resources/pricing-limits"
+        }
+      },
+      "coverage": {
+        "platforms": [
+          "cmdc"
+        ],
+        "count": 1
+      },
+      "capabilities": {
+        "multimodal": [],
+        "protocols": [
+          "chat"
+        ],
+        "platform_count": 1
+      },
+      "sources": [
+        "commandcode.ai/docs/resources/pricing-limits"
+      ]
+    },
     "grok-4.5": {
       "key": "grok-4.5",
       "name": "Grok 4.5",
@@ -5343,6 +5382,48 @@
         "high"
       ]
     },
+    "mimo-v2-6-pro": {
+      "key": "mimo-v2-6-pro",
+      "name": "mimo-v2-6-pro",
+      "provider": "xiaomi",
+      "category": null,
+      "platforms": {
+        "cmdc": {
+          "id": "xiaomi/mimo-v2.6-pro",
+          "protocols": [
+            "chat"
+          ],
+          "notes": "官方文档页未提供该模型的价格、上下文大小等相关参数",
+          "source": "commandcode.ai/docs/resources/pricing-limits",
+          "pricing": {
+            "currency": "USD",
+            "input": 0.43,
+            "output": 0.87,
+            "cache_read": 0.0036,
+            "cache_write": null
+          },
+          "allowance": {
+            "monthly_usd": 40
+          }
+        }
+      },
+      "coverage": {
+        "platforms": [
+          "cmdc"
+        ],
+        "count": 1
+      },
+      "capabilities": {
+        "multimodal": [],
+        "protocols": [
+          "chat"
+        ],
+        "platform_count": 1
+      },
+      "sources": [
+        "commandcode.ai/docs/resources/pricing-limits"
+      ]
+    },
     "mimo-v2.5": {
       "key": "mimo-v2.5",
       "name": "MiMo-V2.5",
@@ -5653,6 +5734,47 @@
       },
       "sources": [
         "opencode.ai/docs/zh-cn/go",
+        "commandcode.ai/docs/resources/pricing-limits"
+      ]
+    },
+    "mimo-v2.6-flash": {
+      "key": "mimo-v2.6-flash",
+      "name": "MiMo-V2.6-Flash",
+      "provider": "Xiaomi",
+      "category": "opensource",
+      "platforms": {
+        "cmdc": {
+          "id": "xiaomi/mimo-v2.6-flash",
+          "protocols": [
+            "chat"
+          ],
+          "source": "commandcode.ai/docs/resources/pricing-limits",
+          "pricing": {
+            "currency": "USD",
+            "input": 0.14,
+            "output": 0.28,
+            "cache_read": 0.0028,
+            "cache_write": null
+          },
+          "allowance": {
+            "monthly_usd": 40
+          }
+        }
+      },
+      "coverage": {
+        "platforms": [
+          "cmdc"
+        ],
+        "count": 1
+      },
+      "capabilities": {
+        "multimodal": [],
+        "protocols": [
+          "chat"
+        ],
+        "platform_count": 1
+      },
+      "sources": [
         "commandcode.ai/docs/resources/pricing-limits"
       ]
     },
@@ -8137,6 +8259,37 @@
         "low",
         "medium",
         "high"
+      ]
+    },
+    "step-5-preview": {
+      "key": "step-5-preview",
+      "name": "Step-5-Preview",
+      "provider": "stepfun",
+      "category": null,
+      "platforms": {
+        "cmdc": {
+          "id": "stepfun/Step-5-Preview",
+          "protocols": [
+            "chat"
+          ],
+          "source": "commandcode.ai/docs/resources/pricing-limits"
+        }
+      },
+      "coverage": {
+        "platforms": [
+          "cmdc"
+        ],
+        "count": 1
+      },
+      "capabilities": {
+        "multimodal": [],
+        "protocols": [
+          "chat"
+        ],
+        "platform_count": 1
+      },
+      "sources": [
+        "commandcode.ai/docs/resources/pricing-limits"
       ]
     }
   }
