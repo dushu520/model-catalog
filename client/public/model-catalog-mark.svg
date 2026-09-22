@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- ledger block -->
+  <rect x="3" y="3" width="18" height="26" fill="none" stroke="#f59e0b" stroke-width="2"/>
+  <!-- ledger lines -->
+  <line x1="7" y1="9" x2="17" y2="9" stroke="#f3efe7" stroke-width="2"/>
+  <line x1="7" y1="14" x2="17" y2="14" stroke="#f3efe7" stroke-width="2" opacity="0.65"/>
+  <line x1="7" y1="19" x2="17" y2="19" stroke="#f3efe7" stroke-width="2" opacity="0.65"/>
+  <!-- index tab -->
+  <rect x="21" y="7" width="8" height="8" fill="#f59e0b"/>
+  <rect x="21" y="19" width="8" height="6" fill="none" stroke="#80b9aa" stroke-width="2"/>
+</svg>

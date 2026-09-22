@@ -1,0 +1,40 @@
+{
+  "favorites": [
+    {
+      "platform": "cmdc",
+      "key": "gemini-3.8-flash"
+    },
+    {
+      "platform": "cmdc",
+      "key": "glm-5.3-flash"
+    },
+    {
+      "platform": "cmdc",
+      "key": "gpt-5.6-luna"
+    },
+    {
+      "platform": "cmdc",
+      "key": "hy4-preview"
+    },
+    {
+      "platform": "cmdc",
+      "key": "mimo-v2.5"
+    },
+    {
+      "platform": "cmdc",
+      "key": "muse-spark-1.3-contributor"
+    },
+    {
+      "platform": "cmdc",
+      "key": "qwen-3.8-flash"
+    },
+    {
+      "platform": "cmdc",
+      "key": "minimax-m3"
+    },
+    {
+      "platform": "cmdc",
+      "key": "deepseek-v4-1-flash"
+    }
+  ]
+}

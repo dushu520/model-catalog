@@ -1,0 +1,111 @@
+meta.total: 91
+raw_count: 91
+opencode 26 unique_ids 26
+ keys: ['allowance', 'category', 'context_size', 'deprecated', 'discount', 'id', 'max_output', 'multimodal', 'multimodal_web', 'name', 'notes', 'open_weights', 'platform', 'pricing', 'protocols', 'provider', 'reasoning', 'release_date', 'source', 'tool_use', 'updated_at', 'updated_at_source']
+cmdc 65 unique_ids 65
+ keys: ['allowance', 'category', 'context_size', 'deprecated', 'discount', 'id', 'max_output', 'multimodal', 'multimodal_web', 'name', 'notes', 'open_weights', 'platform', 'pricing', 'protocols', 'provider', 'reasoning', 'release_date', 'source', 'tool_use', 'updated_at', 'updated_at_source']
+intersection_exact_id: 18
+union_exact_id: 73
+exact_intersection: ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-v4-pro', 'glm-5.1', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash', 'gpt-5.6-luna', 'grok-4.6', 'kimi-k2.6', 'kimi-k2.7-code', 'kimi-k3', 'mimo-v2.5', 'mimo-v2.5-pro', 'minimax-m2.5', 'minimax-m2.7', 'minimax-m3', 'muse-spark-1.2-contributor']
+normalized_id_groups: 68
+normalized_id_collisions: [('grok46', [('opencode', 'grok-4.6'), ('cmdc', 'grok-4.6')]), ('gpt56luna', [('opencode', 'gpt-5.6-luna'), ('cmdc', 'gpt-5.6-luna')]), ('musespark12contributor', [('opencode', 'muse-spark-1.2-contributor'), ('cmdc', 'muse-spark-1.2-contributor')]), ('glm53flash', [('opencode', 'glm-5.3-flash'), ('cmdc', 'glm-5.3-flash')]), ('glm53', [('opencode', 'glm-5.3'), ('cmdc', 'glm-5.3')]), ('glm52', [('opencode', 'glm-5.2'), ('cmdc', 'glm-5.2')]), ('glm51', [('opencode', 'glm-5.1'), ('cmdc', 'glm-5.1')]), ('kimik3', [('opencode', 'kimi-k3'), ('cmdc', 'kimi-k3')]), ('kimik27code', [('opencode', 'kimi-k2.7-code'), ('cmdc', 'kimi-k2.7-code')]), ('kimik26', [('opencode', 'kimi-k2.6'), ('cmdc', 'kimi-k2.6')]), ('mimov25', [('opencode', 'mimo-v2.5'), ('cmdc', 'mimo-v2.5')]), ('mimov25pro', [('opencode', 'mimo-v2.5-pro'), ('cmdc', 'mimo-v2.5-pro')]), ('deepseekv4pro', [('opencode', 'deepseek-v4-pro'), ('cmdc', 'deepseek-v4-pro')]), ('deepseekv4flash', [('opencode', 'deepseek-v4-flash'), ('cmdc', 'deepseek-v4-flash')]), ('deepseekv4flashvisionexp', [('opencode', 'deepseek-v4-flash-vision-exp'), ('cmdc', 'deepseek-v4-flash-vision-exp')]), ('minimaxm3', [('opencode', 'minimax-m3'), ('cmdc', 'minimax-m3')]), ('minimaxm27', [('opencode', 'minimax-m2.7'), ('cmdc', 'minimax-m2.7')]), ('minimaxm25', [('opencode', 'minimax-m2.5'), ('cmdc', 'minimax-m2.5')]), ('qwen38max', [('opencode', 'qwen3.8-max'), ('cmdc', 'qwen-3.8-max')]), ('qwen38flash', [('opencode', 'qwen3.8-flash'), ('cmdc', 'qwen-3.8-flash')])]
+normalized_name_groups_with_cross_platform: [('grok46', [('opencode', 'grok-4.6'), ('cmdc', 'grok-4.6')]), ('gpt56luna', [('opencode', 'gpt-5.6-luna'), ('cmdc', 'gpt-5.6-luna')]), ('musespark12contributor', [('opencode', 'muse-spark-1.2-contributor'), ('cmdc', 'muse-spark-1.2-contributor')]), ('glm53flash', [('opencode', 'glm-5.3-flash'), ('cmdc', 'glm-5.3-flash')]), ('glm53', [('opencode', 'glm-5.3'), ('cmdc', 'glm-5.3')]), ('glm52', [('opencode', 'glm-5.2'), ('cmdc', 'glm-5.2')]), ('glm51', [('opencode', 'glm-5.1'), ('cmdc', 'glm-5.1')]), ('kimik3', [('opencode', 'kimi-k3'), ('cmdc', 'kimi-k3')]), ('kimik27code', [('opencode', 'kimi-k2.7-code'), ('cmdc', 'kimi-k2.7-code')]), ('kimik26', [('opencode', 'kimi-k2.6'), ('cmdc', 'kimi-k2.6')]), ('mimov25', [('opencode', 'mimo-v2.5'), ('cmdc', 'mimo-v2.5')]), ('mimov25pro', [('opencode', 'mimo-v2.5-pro'), ('cmdc', 'mimo-v2.5-pro')]), ('deepseekv4flashvisionexp', [('opencode', 'deepseek-v4-flash-vision-exp'), ('cmdc', 'deepseek-v4-flash-vision-exp')]), ('minimaxm3', [('opencode', 'minimax-m3'), ('cmdc', 'minimax-m3')]), ('minimaxm27', [('opencode', 'minimax-m2.7'), ('cmdc', 'minimax-m2.7')]), ('minimaxm25', [('opencode', 'minimax-m2.5'), ('cmdc', 'minimax-m2.5')]), ('qwen38max', [('opencode', 'qwen3.8-max'), ('cmdc', 'qwen-3.8-max')]), ('qwen38flash', [('opencode', 'qwen3.8-flash'), ('cmdc', 'qwen-3.8-flash')]), ('qwen37max', [('opencode', 'qwen3.7-max'), ('cmdc', 'qwen-3.7-max')]), ('qwen37plus', [('opencode', 'qwen3.7-plus'), ('cmdc', 'qwen-3.7-plus')]), ('qwen36plus', [('opencode', 'qwen3.6-plus'), ('cmdc', 'qwen-3.6-plus')])]
+categories: Counter({'opensource': 52, 'premium': 39})
+providers: Counter({'Alibaba': 13, 'Z.ai': 10, 'Anthropic': 10, 'OpenAI': 8, 'Moonshot AI': 8, 'DeepSeek': 7, 'MiniMax': 6, 'Google': 5, 'Meta': 4, 'Xiaomi': 4, 'Tencent': 4, 'xAI': 3, 'StepFun': 2, 'Thinking Machines': 2, 'Meituan': 1, 'Poolside': 1, 'Inclusion AI': 1, 'NVIDIA': 1, 'Sakana': 1})
+protocols: Counter({'chat': 77, 'messages': 22, 'responses': 6})
+multimodal: Counter({'text': 91, 'image': 59, 'video': 11, 'pdf': 3, 'audio': 2})
+
+ opencode
+grok-4.6 | Grok 4.6 | xAI
+gpt-5.6-luna | GPT 5.6 Luna | OpenAI
+muse-spark-1.2-contributor | Muse Spark 1.2 Contributor | Meta
+glm-5.3-flash | GLM-5.3-Flash | Z.ai
+glm-5.3 | GLM-5.3 | Z.ai
+glm-5.2 | GLM-5.2 | Z.ai
+glm-5.1 | GLM-5.1 | Z.ai
+kimi-k3 | Kimi K3 | Moonshot AI
+kimi-k2.7-code | Kimi K2.7 Code | Moonshot AI
+kimi-k2.6 | Kimi K2.6 | Moonshot AI
+longcat-2.0 | LongCat-2.0 | Meituan
+mimo-v2.5 | MiMo-V2.5 | Xiaomi
+mimo-v2.5-pro | MiMo-V2.5-Pro | Xiaomi
+deepseek-v4-pro | DeepSeek V4 Pro | DeepSeek
+deepseek-v4-flash | DeepSeek V4 Flash | DeepSeek
+deepseek-v4-flash-vision-exp | DeepSeek V4 Flash Vision Exp | DeepSeek
+hy4-preview | Hy4 Preview | Tencent
+hy3 | Hy3 | Tencent
+minimax-m3 | MiniMax M3 | MiniMax
+minimax-m2.7 | MiniMax M2.7 | MiniMax
+minimax-m2.5 | MiniMax M2.5 | MiniMax
+qwen3.8-max | Qwen3.8 Max | Alibaba
+qwen3.8-flash | Qwen3.8 Flash | Alibaba
+qwen3.7-max | Qwen3.7 Max | Alibaba
+qwen3.7-plus | Qwen3.7 Plus | Alibaba
+qwen3.6-plus | Qwen3.6 Plus | Alibaba
+
+ cmdc
+laguna-s-2.1-free | Laguna S 2.1 | Poolside
+ling-3.0-flash-free | Ling 3.0 Flash | Inclusion AI
+tencent/hy4-preview | Tencent Hy4 Preview | Tencent
+tencent/hy3-paid | Tencent Hy3 | Tencent
+kimi-k3 | Kimi K3 | Moonshot AI
+kimi-k2.7-code | Kimi K2.7 Code | Moonshot AI
+kimi-k2.7-code-highspeed | Kimi K2.7 Code HighSpeed | Moonshot AI
+kimi-k2.6 | Kimi K2.6 | Moonshot AI
+kimi-k2.5 | Kimi K2.5 | Moonshot AI
+glm-5.3-flash | GLM-5.3 Flash | Z.ai
+glm-5.3 | GLM-5.3 | Z.ai
+glm-5.2 | GLM-5.2 | Z.ai
+glm-5.2-fast | GLM-5.2 Fast | Z.ai
+glm-5.1 | GLM-5.1 | Z.ai
+glm-5 | GLM-5 | Z.ai
+minimax-m3 | MiniMax M3 | MiniMax
+minimax-m2.7 | MiniMax M2.7 | MiniMax
+minimax-m2.5 | MiniMax M2.5 | MiniMax
+deepseek-v4-pro | DeepSeek V4 Pro (latest) | DeepSeek
+deepseek-v4-flash | DeepSeek V4 Flash (latest) | DeepSeek
+deepseek-v4-flash-vision-exp | DeepSeek V4 Flash Vision (exp) | DeepSeek
+deepseek-v4-flash-fast | DeepSeek V4 Flash Fast | DeepSeek
+qwen-3.8-max | Qwen 3.8 Max | Alibaba
+qwen-3.8-27b | Qwen 3.8 27B | Alibaba
+qwen-3.6-max | Qwen 3.6 Max Preview | Alibaba
+qwen-3.6-plus | Qwen 3.6 Plus | Alibaba
+qwen-3.7-max | Qwen 3.7 Max | Alibaba
+qwen-3.7-plus | Qwen 3.7 Plus | Alibaba
+qwen-3.8-flash | Qwen 3.8 Flash | Alibaba
+qwen-3.7-flash | Qwen 3.7 Flash | Alibaba
+step-3.7-flash | Step 3.7 Flash | StepFun
+step-3.5-flash | Step 3.5 Flash | StepFun
+mimo-v2.5-pro | MiMo V2.5 Pro | Xiaomi
+mimo-v2.5 | MiMo V2.5 | Xiaomi
+nemotron-3-ultra | Nemotron 3 Ultra | NVIDIA
+claude-fable-5-1 | Claude Fable 5.1 | Anthropic
+claude-fable-5 | Claude Fable 5 | Anthropic
+claude-opus-5 | Claude Opus 5 | Anthropic
+claude-opus-4-8 | Claude Opus 4.8 | Anthropic
+claude-opus-4-7 | Claude Opus 4.7 | Anthropic
+claude-opus-4-6 | Claude Opus 4.6 | Anthropic
+claude-sonnet-5 | Claude Sonnet 5 | Anthropic
+claude-sonnet-4-6 | Claude Sonnet 4.6 | Anthropic
+claude-haiku-4-5 | Claude Haiku 4.5 | Anthropic
+gpt-5.6-sol | GPT-5.6 Sol | OpenAI
+gpt-5.6-terra | GPT-5.6 Terra | OpenAI
+gpt-5.6-luna | GPT-5.6 Luna | OpenAI
+gpt-5.5 | GPT-5.5 | OpenAI
+gpt-5.4 | GPT-5.4 | OpenAI
+gpt-5.4-mini | GPT-5.4 Mini | OpenAI
+gpt-5.3-codex | GPT-5.3 Codex | OpenAI
+gemini-3.7-flash | Gemini 3.7 Flash | Google
+gemini-3.6-flash | Gemini 3.6 Flash | Google
+gemini-3.5-flash | Gemini 3.5 Flash | Google
+gemini-3.5-flash-lite | Gemini 3.5 Flash Lite | Google
+gemini-3.1-flash-lite | Gemini 3.1 Flash Lite | Google
+fugu-ultra | Fugu Ultra | Sakana
+muse-spark-1.2 | Muse Spark 1.2 | Meta
+muse-spark-1.2-contributor | Muse Spark 1.2 Contributor | Meta
+muse-spark-1.1 | Muse Spark 1.1 | Meta
+grok-4.6 | Grok 4.6 | xAI
+grok-4.5 | Grok 4.5 | xAI
+inkling | Inkling | Thinking Machines
+inkling-small | Inkling Small | Thinking Machines
+claude-sonnet-4-5 | Claude Sonnet 4.5 | Anthropic
