@@ -74,6 +74,7 @@ CommandCode 的 `id` 是带厂商前缀的完整调用 ID（如 `qwen/qwen3.8-ma
 | GET | `/api/maintenance/live` | 服务端代拉官方 `/models`（前端 CORS 失败时的兜底），`?platform=opencode|cmdc` |
 | POST | `/api/maintenance/apply` | 将模型参数 JSON 合并进 `models.merged.json`（写前自动备份） |
 | POST | `/api/maintenance/remove` | 删除某模型的一个平台参数，无剩余平台则删除整条模型 |
+| POST | `/api/maintenance/pricing` | 修改某平台记录的价格（指定档的四项单价 + 月额度），只动 `pricing`/`allowance`，写前自动备份 |
 
 ## 同步官方数据
 

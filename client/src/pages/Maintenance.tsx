@@ -1,12 +1,21 @@
 /* Editorial Atlas reminder: maintenance is a workbench—two platform columns scan side by side, new models stay inspectable before landing. */
 
 import { useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, Heart, Loader2, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, Heart, Loader2, Plus, RefreshCw, RotateCw, Search, Settings2, Tag, Trash2, X } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import ApiKeyDialog, { loadApiKeys } from "@/components/ApiKeyDialog";
+import PricingDialog from "@/components/PricingDialog";
 import TestDialog from "@/components/TestDialog";
 import rawData from "@/data/models.merged.json";
+import {
+  retryEnrich,
+  subscribeEnrich,
+  submitEnrich,
+  type NewModel,
+  type QueueItem,
+  type QueueSnapshot,
+} from "@/lib/enrich-queue";
 import { isFavorite, loadFavorites, toggleFavorite, type FavoriteRef } from "@/lib/favorites";
 import { hideModelKey, loadHiddenKeys, persistHiddenKeys, unhideModelKey } from "@/lib/hidden-models";
 import { CatalogData, MergedModel, PlatformKey, PLATFORM_META } from "@/lib/model-catalog";
@@ -18,16 +27,7 @@ const LIVE_ENDPOINTS: Record<PlatformKey, string> = {
   cmdc: "https://api.commandcode.ai/provider/v1/models",
 };
 
-const DOC_URLS: Record<PlatformKey, string> = {
-  opencode: "https://opencode.ai/docs/zh-cn/go",
-  cmdc: "https://commandcode.ai/docs/resources/pricing-limits",
-};
-
-const ENRICH_MODEL_ID = "deepseek/deepseek-v4-flash";
-const ENRICH_ENDPOINT = "https://api.commandcode.ai/provider/v1/chat/completions";
-
 type LiveItem = { id: string; name?: string; context_length?: number };
-type NewModel = { id: string; name?: string; context_length?: number };
 type RemovedModel = { key: string; name: string; id: string };
 type ReportTab = "added" | "removed";
 type Report = { platform: PlatformKey; added: NewModel[]; removed: RemovedModel[]; total: number; tab: ReportTab };
@@ -68,40 +68,6 @@ async function fetchLiveViaServer(platform: PlatformKey): Promise<LiveItem[]> {
   const body = (await resp.json()) as { items?: LiveItem[]; error?: string };
   if (!resp.ok) throw new Error(body.error ?? `代理请求失败 ${resp.status}`);
   return body.items ?? [];
-}
-
-function buildEnrichPrompt(platform: PlatformKey, items: NewModel[]): string {
-  const ids = items.map((item) => `- ${item.id}`).join("\n");
-  const docUrl = DOC_URLS[platform];
-  return `使用 ${docUrl} 获取模型 ${ENRICH_MODEL_ID} 不存在时的模型ID，价格、上下文大小等相关参数，并用json返回。\n\n平台：${platform}（${PLATFORM_META[platform].label}）\n新增模型清单（以 /models 返回的真实调用 id 为准）：\n${ids}\n\n要求：\n1. 对上面每个新增模型，从官方文档页提取参数；关闭推理，只输出结构化 JSON。\n2. 严格按此 schema 输出 JSON 数组（每个记录 = 一个平台侧），字段缺省即官方页面未提供，不要编造：\n[{"platform":"${platform}","key":"<id 去厂商前缀后的规范小写横线形>","id":"<与上面清单完全一致的真实调用 id>","name":"<模型名>","provider":"<厂商>","category":"opensource|premium","context_size":<数字>,"pricing":{"input":<USD/1M>,"output":<USD/1M>,"cache_read":<USD/1M>,"cache_write":<USD/1M>,"tiers":[...]},"allowance":{"monthly_usd":<数字>,"plan_allowance":{...}},"notes":"<备注>"}]\n3. 价格单位一律 USD / 每 1M token；有分档（tier/峰谷）放 pricing.tiers。\n4. 只返回 JSON 数组，不要其他解释文字。`;
-}
-
-function extractJsonArray(text: string): unknown[] {
-  const direct = (() => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return null;
-    }
-  })();
-  if (Array.isArray(direct)) return direct;
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start < 0 || end <= start) throw new Error("LLM 返回中未找到 JSON 数组");
-  const parsed: unknown = JSON.parse(text.slice(start, end + 1));
-  if (!Array.isArray(parsed)) throw new Error("LLM 返回不是 JSON 数组");
-  return parsed;
-}
-
-function readChoiceText(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "";
-  const choices = (payload as { choices?: Array<{ message?: { content?: unknown } }> }).choices;
-  const content = choices?.[0]?.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => (typeof part === "string" ? part : typeof (part as { text?: unknown })?.text === "string" ? String((part as { text?: unknown }).text) : "")).join("");
-  }
-  return "";
 }
 
 function formatPriceShort(value?: number | null) {
@@ -220,6 +186,7 @@ function ColumnList({
   onUnhide,
   onTest,
   onToggleFavorite,
+  onEditPricing,
 }: {
   title: string;
   short: string;
@@ -230,6 +197,7 @@ function ColumnList({
   onUnhide: (key: string) => void;
   onTest: (model: MergedModel, platform: PlatformKey) => void;
   onToggleFavorite: (model: MergedModel, platform: PlatformKey) => void;
+  onEditPricing: (model: MergedModel, platform: PlatformKey) => void;
 }) {
   if (models.length === 0) {
     return <div className="maint-empty">{hiddenView ? "没有已隐藏的该平台模型。" : "该平台暂无模型。"}</div>;
@@ -245,6 +213,15 @@ function ColumnList({
           </div>
           <RowPrice model={model} platform={title as PlatformKey} />
           <span className="maint-actions">
+            <button
+              className="maint-edit"
+              type="button"
+              title="修改该平台价格"
+              onClick={() => onEditPricing(model, title as PlatformKey)}
+            >
+              <Tag size={14} />
+              改价
+            </button>
             <button
               className={isFavorite(favorites, title as PlatformKey, model.key) ? "maint-fav is-active" : "maint-fav"}
               type="button"
@@ -280,14 +257,14 @@ export default function Maintenance() {
   const [refreshing, setRefreshing] = useState<Record<PlatformKey, boolean>>({ opencode: false, cmdc: false });
   const [report, setReport] = useState<Report | null>(null);
   const [removing, setRemoving] = useState("");
-  const [addingKey, setAddingKey] = useState("");
-  const [enriching, setEnriching] = useState(false);
+  const [queue, setQueue] = useState<QueueSnapshot>({ items: [], running: 0, pending: 0, failed: 0 });
   const [applied, setApplied] = useState<MergedModel[]>([]);
   const [localModels, setLocalModels] = useState<MergedModel[]>(() => Object.values(catalog.models));
   const [localLoading, setLocalLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [testModel, setTestModel] = useState<MergedModel | null>(null);
   const [testPlatform, setTestPlatform] = useState<PlatformKey | null>(null);
+  const [priceEdit, setPriceEdit] = useState<{ model: MergedModel; platform: PlatformKey } | null>(null);
   const [favorites, setFavorites] = useState<FavoriteRef[]>(() => loadFavorites());
 
   const openTest = (model: MergedModel, platform: PlatformKey) => {
@@ -298,6 +275,10 @@ export default function Maintenance() {
   const closeTest = () => {
     setTestModel(null);
     setTestPlatform(null);
+  };
+
+  const openPricing = (model: MergedModel, platform: PlatformKey) => {
+    setPriceEdit({ model, platform });
   };
 
   const reloadLocal = async (silent = false) => {
@@ -316,6 +297,26 @@ export default function Maintenance() {
   useEffect(() => {
     reloadLocal(true);
   }, []);
+
+  // 订阅后台新增队列：弹窗关了、页面切走了，任务仍在跑；完成一条数据就刷新一条。
+  useEffect(() => {
+    const unsubscribe = subscribeEnrich({
+      update: setQueue,
+      completed: (platform, ids, written) => {
+        const idSet = new Set(ids);
+        setReport((prev) =>
+          prev && prev.platform === platform ? { ...prev, added: prev.added.filter((item) => !idSet.has(item.id)) } : prev,
+        );
+        if (written.length > 0) setApplied((prev) => [...written, ...prev]);
+        void reloadLocal(true);
+      },
+    });
+    return unsubscribe;
+  }, []);
+
+  const queueItemFor = (platform: PlatformKey, id: string): QueueItem | undefined =>
+    queue.items.find((i) => i.platform === platform && i.model.id === id);
+  const queuePending = queue.running + queue.pending;
 
   const hiddenSet = useMemo(() => new Set(hiddenKeys), [hiddenKeys]);
   const allModels = localModels;
@@ -387,62 +388,27 @@ export default function Maintenance() {
     }
   };
 
-  const enrichItems = async (platform: PlatformKey, items: NewModel[]) => {
-    const ccKey = loadApiKeys().cmdc;
-    if (!ccKey) {
-      toast.error("尚未设置 CommandCode API Key，请先打开设置");
-      setSettingsOpen(true);
-      return;
-    }
-    setEnriching(true);
-    try {
-      const resp = await fetch(ENRICH_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ccKey}` },
-        body: JSON.stringify({
-          model: ENRICH_MODEL_ID,
-          messages: [{ role: "user", content: buildEnrichPrompt(platform, items) }],
-          temperature: 0,
-          stream: false,
-          // CommandCode 只接受 low|medium|high|xhigh|max，用最低档 low 近似关闭推理
-          reasoning_effort: "low",
-        }),
-        signal: AbortSignal.timeout(120000),
-      });
-      const text = await resp.text();
-      if (!resp.ok) throw new Error(`${PLATFORM_META[platform].label} 参数提取失败 ${resp.status}: ${text.slice(0, 400)}`);
-      const results = extractJsonArray(readChoiceText(JSON.parse(text) as unknown));
-      const resp2 = await fetch("/api/maintenance/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ models: results }),
-        signal: AbortSignal.timeout(30000),
-      });
-      const body = (await resp2.json()) as { ok?: boolean; error?: string; actions?: string[]; updated?: Array<{ key: string; platform: string; model: MergedModel }> };
-      if (!resp2.ok || !body.ok) throw new Error(body.error ?? `写入失败 ${resp2.status}`);
-      const writtenIds = new Set(items.map((item) => item.id));
-      setReport((prev) =>
-        prev && prev.platform === platform
-          ? { ...prev, added: prev.added.filter((item) => !writtenIds.has(item.id)) }
-          : prev,
-      );
-      setApplied((prev) => [...(body.updated ?? []).map((item) => item.model), ...prev]);
-      await reloadLocal(true);
-      toast.success(`已新增写入 ${(body.actions ?? []).length} 条`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "新增失败");
-    } finally {
-      setEnriching(false);
-    }
+  // 新增改为后台队列：立即入队返回，固定并发 3 条在后台跑，可关弹窗/切页。
+  const requireKey = (): boolean => {
+    if (loadApiKeys().cmdc) return true;
+    toast.error("尚未设置 CommandCode API Key，请先打开设置");
+    setSettingsOpen(true);
+    return false;
   };
 
-  const addOne = async (platform: PlatformKey, item: NewModel) => {
-    setAddingKey(item.id);
-    try {
-      await enrichItems(platform, [item]);
-    } finally {
-      setAddingKey("");
-    }
+  const addOne = (platform: PlatformKey, item: NewModel) => {
+    if (!requireKey()) return;
+    submitEnrich(platform, [item]);
+  };
+
+  const addAll = (platform: PlatformKey, items: NewModel[]) => {
+    if (!requireKey()) return;
+    submitEnrich(platform, items);
+  };
+
+  const retryOne = (platform: PlatformKey, item: NewModel) => {
+    if (!requireKey()) return;
+    retryEnrich(platform, item);
   };
 
   const removeOne = async (platform: PlatformKey, target: RemovedModel) => {
@@ -495,6 +461,18 @@ export default function Maintenance() {
             <p className="eyebrow eyebrow--orange">MAINTENANCE / 03</p>
             <h1>双平台模型维护</h1>
             <p className="maint-desc">默认显示 CommandCode，可切换 OpenCode 或双平台对照。每行显示模型名、平台侧模型 ID 与价格；隐藏后，首页与对比页不再显示。</p>
+            {queuePending > 0 && (
+              <span className="maint-queue-pill" role="status">
+                <Loader2 size={13} className="spin" />
+                后台新增中：运行 {queue.running} · 排队 {queue.pending}
+              </span>
+            )}
+            {queue.failed > 0 && queuePending === 0 && (
+              <span className="maint-queue-pill maint-queue-pill--error" role="status">
+                <RotateCw size={13} />
+                {queue.failed} 条新增失败，可在更新报告里重试
+              </span>
+            )}
           </div>
           <div className="maint-head-actions">
             <div className="maint-search">
@@ -555,6 +533,7 @@ export default function Maintenance() {
                 onUnhide={handleUnhide}
                 onTest={openTest}
                 onToggleFavorite={handleToggleFavorite}
+                onEditPricing={openPricing}
               />
             </div>
           ))}
@@ -582,6 +561,16 @@ export default function Maintenance() {
       </footer>
       <ApiKeyDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TestDialog model={testModel} initialPlatform={testPlatform} onClose={closeTest} onOpenSettings={() => setSettingsOpen(true)} />
+      {priceEdit && (
+        <PricingDialog
+          model={priceEdit.model}
+          platform={priceEdit.platform}
+          onClose={() => setPriceEdit(null)}
+          onSaved={async () => {
+            await reloadLocal(true);
+          }}
+        />
+      )}
 
       {report && (
         <div className="maint-report-mask" role="dialog" aria-modal="true" aria-label="更新对比结果">
@@ -620,24 +609,43 @@ export default function Maintenance() {
                 {report.added.length === 0 ? (
                   <div className="maint-empty">无新增模型，可切换到移除 Tab 或直接关闭。</div>
                 ) : (
-                  <div className="maint-report-list">
-                    {report.added.map((item) => (
-                      <div className="maint-report-row" key={item.id}>
-                        <div className="maint-identity"><strong>{item.name ?? item.id}</strong><code>{item.id}</code></div>
-                        <button
-                          className="maint-add"
-                          type="button"
-                          disabled={enriching && addingKey !== "" && addingKey !== item.id}
-                          onClick={() => addOne(report.platform, item)}
-                        >
-                          {addingKey === item.id ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
-                          新增
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    <div className="maint-report-actions">
+                      <button className="maint-add" type="button" onClick={() => addAll(report.platform, report.added)}>
+                        <Plus size={14} />
+                        全部新增（{report.added.length}）
+                      </button>
+                      <span className="maint-queue-note">后台并发 3 条，可关闭本窗口继续</span>
+                    </div>
+                    <div className="maint-report-list">
+                      {report.added.map((item) => {
+                        const state = queueItemFor(report.platform, item.id);
+                        return (
+                          <div className="maint-report-row" key={item.id}>
+                            <div className="maint-identity"><strong>{item.name ?? item.id}</strong><code>{item.id}</code></div>
+                            {state ? (
+                              <span className={`maint-job maint-job--${state.status}`}>
+                                {state.status === "running" && <><Loader2 size={14} className="spin" />提取中…</>}
+                                {state.status === "pending" && <>排队中</>}
+                                {state.status === "failed" && (
+                                  <button className="maint-retry" type="button" title={state.error} onClick={() => retryOne(report.platform, item)}>
+                                    <RotateCw size={13} />重试
+                                  </button>
+                                )}
+                              </span>
+                            ) : (
+                              <button className="maint-add" type="button" onClick={() => addOne(report.platform, item)}>
+                                <Plus size={14} />
+                                新增
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
-                <p className="maint-hint">新增即用 deepseek-v4-flash 读取官方文档页提取参数并直接写入对应平台位置（自动备份）。</p>
+                <p className="maint-hint">新增即用 deepseek-v4-flash 读取官方文档页提取参数并直接写入对应平台位置（自动备份）。任务在后台队列运行，可关闭窗口或切换页面。</p>
               </div>
             ) : (
               <div>

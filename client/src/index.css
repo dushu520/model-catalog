@@ -646,6 +646,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .maint-identity code { display: block; overflow-wrap: anywhere; color: #a19c91; font-family: "IBM Plex Mono", monospace; font-size: 11px; }
 .maint-hide { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(243,239,231,.25); background: transparent; color: #aaa59b; font-size: 12px; padding: 7px 10px; cursor: pointer; }
 .maint-hide:hover { border-color: var(--orange); color: var(--orange); }
+.maint-edit { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(243,239,231,.25); background: transparent; color: #aaa59b; font-size: 12px; padding: 7px 10px; cursor: pointer; white-space: nowrap; }
+.maint-edit:hover { border-color: var(--orange); color: var(--orange); }
 .maint-actions { display: inline-flex; align-items: center; gap: 6px; }
 .maint-fav { display: inline-grid; place-items: center; width: 30px; height: 32px; border: 1px solid rgba(243,239,231,.25); background: transparent; color: #807e75; cursor: pointer; transition: color 160ms var(--ease-out), border-color 160ms var(--ease-out), background 160ms var(--ease-out); }
 .maint-fav:hover { border-color: var(--orange); color: var(--orange); }
@@ -677,6 +679,35 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .maint-remove:hover:not(:disabled) { background: #a33; color: #fff; }
 .maint-remove:disabled { opacity: .6; cursor: wait; }
 .maint-hint { margin: 10px 0 0; color: #8d867b; font-size: 12px; line-height: 1.6; }
+/* 后台新增队列 */
+.maint-queue-pill { display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; border: 1px solid rgba(245,158,11,.5); background: rgba(245,158,11,.1); color: var(--orange); font-family: "IBM Plex Mono", monospace; font-size: 12px; padding: 6px 11px; }
+.maint-queue-pill--error { border-color: rgba(170,51,51,.5); background: rgba(170,51,51,.1); color: #d06060; }
+.maint-report-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.maint-queue-note { color: #8d867b; font-size: 12px; }
+.maint-job { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(36,36,32,.22); color: #5c594e; font-size: 12px; padding: 7px 10px; white-space: nowrap; }
+.maint-job--running { border-color: rgba(245,158,11,.6); color: var(--orange-deep); }
+.maint-job--failed { border-color: rgba(170,51,51,.5); color: #a33; padding: 0; border: none; }
+.maint-retry { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #a33; background: transparent; color: #a33; font-size: 12px; padding: 7px 10px; cursor: pointer; white-space: nowrap; }
+.maint-retry:hover { background: #a33; color: #fff; }
+/* 价格编辑弹窗 */
+.pricing-dialog { width: min(560px, calc(100vw - 32px)); }
+.dialog-icon--price { border-color: var(--orange); color: var(--orange); }
+.pricing-dialog .dialog-intro code { color: #b9b2a6; font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+.pricing-tiers { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.pricing-band-label { color: #8e8b82; font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .04em; }
+.pricing-tier-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.pricing-tier { border: 1px solid rgba(243,239,231,.25); background: transparent; color: #aaa59b; font-family: "IBM Plex Mono", monospace; font-size: 12px; padding: 6px 11px; cursor: pointer; transition: border-color 160ms var(--ease-out), color 160ms var(--ease-out), background 160ms var(--ease-out); }
+.pricing-tier:hover { border-color: var(--orange); color: var(--orange); }
+.pricing-tier.is-active { border-color: var(--orange); background: rgba(245,158,11,.12); color: var(--orange); }
+.pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pricing-field { display: flex; flex-direction: column; gap: 6px; }
+.pricing-field > span { color: #8e8b82; font-size: 12px; }
+.pricing-field input { border: 1px solid rgba(243,239,231,.25); background: var(--paper); color: #282824; font-family: "IBM Plex Mono", monospace; font-size: 13px; padding: 9px 11px; outline: none; transition: border-color 160ms var(--ease-out); }
+.pricing-field input:focus { border-color: var(--orange); }
+.pricing-field input::placeholder { color: #9c9689; }
+.pricing-field--allowance { margin-top: 12px; }
+.pricing-dialog .maint-hint { margin-top: 14px; }
+@media (max-width: 560px) { .pricing-grid { grid-template-columns: 1fr; } }
 @media (max-width: 1180px) {
   .maint-main { width: calc(100% - 36px); }
   .maint-head { display: block; }

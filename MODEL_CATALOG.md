@@ -131,10 +131,11 @@
 - `GET /api/maintenance/live?platform=opencode|cmdc` — 服务端代拉官方 `/models`（前端直连 CORS 失败时的兜底），返回 `{platform,count,items:[{id,name?,context_length?}]}`，Key 取自 `.sync-tmp/api_keys.env`。
 - `POST /api/maintenance/apply` — 把 LLM 产出的模型参数 JSON 合并进 `models.merged.json`（只写提供的字段，写前自动备份到 `.sync-tmp/backups/`，成功后同步内存并返回 actions + updated）。
 - `POST /api/maintenance/remove` — 删除某模型的一个平台参数（body `{key,platform}`）；无剩余平台则彻底删除整条模型，写前自动备份。
+- `POST /api/maintenance/pricing` — 修改某平台记录的价格（body `{key,platform,tierIndex?,input?,output?,cache_read?,cache_write?,monthly_usd?}`）：`tierIndex` 指向 `pricing.tiers[i]`（记录无 tiers 时根级单价即唯一档）；未提供的字段保持原值，显式传 `null` 清空；改第 0 档时同步写回根级主价格以维持 `tiers[0] ≡ pricing` 不变量（首页、对比页与 LiteLLM 导出据此读价）；只触碰 `pricing`/`allowance`，不动 id/协议等，写前自动备份。
 
 ## 页面功能（续）
 
-`/maintenance` 模型维护页：双栏（OpenCode Go / CommandCode，默认只显示 CommandCode，可切换）列出模型名、平台侧 ID 与价格；每行可隐藏（全局隐藏，首页/对比页同步过滤，可恢复）、可收藏（心形，按平台侧存入我的模型）、点击标题可测试（默认选中当前列平台）。每列「更新模型」拉取官方 `/models` 后弹窗展示新增/移除双 Tab，新增经 `deepseek-v4-flash` 提取参数后写入，移除逐条删除平台参数。
+`/maintenance` 模型维护页：双栏（OpenCode Go / CommandCode，默认只显示 CommandCode，可切换）列出模型名、平台侧 ID 与价格；每行可**改价**（弹出编辑器，按档位编辑该平台的输入/输出/缓存读/缓存写单价与月额度）、可隐藏（全局隐藏，首页/对比页同步过滤，可恢复）、可收藏（心形，按平台侧存入我的模型）、点击标题可测试（默认选中当前列平台）。每列「更新模型」拉取官方 `/models` 后弹窗展示新增/移除双 Tab。**新增走后台队列**（`client/src/lib/enrich-queue.ts`）：可单条「新增」或「全部新增」，固定并发 3 条、单条失败不影响其他（失败的提供「重试」），队列活在模块作用域，因此关闭弹窗或切换页面任务仍继续，页头胶囊显示运行/排队/失败数；每个任务由 `deepseek-v4-flash` 读取该模型文档页提取参数后经 `/api/maintenance/apply` 写入。移除逐条删除平台参数。
 
 `/favorites` 我的模型页：展示收藏的平台侧模型卡片（平台徽标、调用 ID、上下文窗口、最大输出、价格、推理档位），支持详情、测试、取消喜爱；收藏存于后端 `models.favorite.json` 并在浏览器 localStorage 缓存。
 

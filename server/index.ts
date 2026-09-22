@@ -567,6 +567,122 @@ async function startServer() {
     }
   });
 
+  // POST /api/maintenance/pricing — 只改某平台记录的价格（指定档的四项单价 + 月额度）
+  // body: {key, platform, tierIndex?, input?, output?, cache_read?, cache_write?, monthly_usd?}
+  //   - tierIndex 指向 platforms.<platform>.pricing.tiers[<i>]；记录没有 tiers 时，根级单价即视为唯一档
+  //   - body 未出现的价格字段一律保持原值；显式传 null 表示清空该字段
+  //   - 改 tier 0（含无 tiers 的根级）时同步写回根级主价格，维持 tiers[0] ≡ pricing 的不变量
+  //   - 只触碰 pricing/allowance，不动 id、协议、多模态等字段；写前自动备份
+  app.post("/api/maintenance/pricing", (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const key = typeof body.key === "string" ? body.key.trim() : "";
+    const rawPlatform = String(body.platform ?? "").toLowerCase();
+    const platform = rawPlatform === "opencode" ? "opencode" : rawPlatform === "cmdc" ? "cmdc" : "";
+    if (!key || !platform) {
+      res.status(400).json({ error: "body needs key and platform(opencode|cmdc)" });
+      return;
+    }
+
+    const PRICE_FIELDS = ["input", "output", "cache_read", "cache_write"] as const;
+    const patch: Record<string, number | null> = {};
+    for (const field of PRICE_FIELDS) {
+      if (!(field in body)) continue;
+      const value = body[field];
+      if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+        res.status(400).json({ error: `${field} must be a non-negative number or null` });
+        return;
+      }
+      patch[field] = value as number | null;
+    }
+    let monthly: number | null | undefined;
+    if ("monthly_usd" in body) {
+      const value = body.monthly_usd;
+      if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+        res.status(400).json({ error: "monthly_usd must be a non-negative number or null" });
+        return;
+      }
+      monthly = value as number | null;
+    }
+    if (Object.keys(patch).length === 0 && monthly === undefined) {
+      res.status(400).json({ error: "no price field provided" });
+      return;
+    }
+
+    try {
+      const merged = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as { meta?: Record<string, any>; models?: Record<string, Record<string, any>> };
+      const store: Record<string, Record<string, any>> = { ...(merged.models ?? {}), ...models };
+      const byKey: Record<string, string> = {};
+      for (const k of Object.keys(store)) byKey[normId(k)] = k;
+      const target = byKey[normId(key)];
+      if (!target || !store[target]) {
+        res.status(404).json({ error: `model not found: ${key}` });
+        return;
+      }
+      const model = store[target];
+      const oldRec = (model.platforms ?? {})[platform];
+      if (!oldRec || !oldRec.id) {
+        res.status(404).json({ error: `platform record not found: ${target}.${platform}` });
+        return;
+      }
+
+      const rec: Record<string, any> = { ...oldRec };
+      const pricing: Record<string, any> = { ...(oldRec.pricing ?? {}) };
+      pricing.currency = pricing.currency ?? "USD";
+      const tiers: Array<Record<string, any>> = Array.isArray(pricing.tiers) ? pricing.tiers.map((t: Record<string, any>) => ({ ...t })) : [];
+      const hasTiers = tiers.length > 0;
+      let tierIndex = 0;
+      if (hasTiers) {
+        const rawIndex = body.tierIndex;
+        if (typeof rawIndex !== "number" || !Number.isInteger(rawIndex) || rawIndex < 0 || rawIndex >= tiers.length) {
+          res.status(400).json({ error: `tierIndex must be an integer in [0, ${tiers.length - 1}]` });
+          return;
+        }
+        tierIndex = rawIndex;
+        Object.assign(tiers[tierIndex], patch);
+        pricing.tiers = tiers;
+      } else if (body.tierIndex !== undefined && body.tierIndex !== null && body.tierIndex !== 0) {
+        res.status(400).json({ error: "this record has a single price (no tiers); tierIndex must be 0" });
+        return;
+      }
+      // tier 0 与根级主价格描述同一档价格，必须同步，否则列表/LiteLLM 导出会读到旧值
+      if (!hasTiers || tierIndex === 0) Object.assign(pricing, patch);
+      rec.pricing = pricing;
+      if (monthly !== undefined) {
+        const allowance: Record<string, any> = { ...(oldRec.allowance ?? {}) };
+        if (monthly === null) delete allowance.monthly_usd;
+        else allowance.monthly_usd = monthly;
+        rec.allowance = allowance;
+      }
+      store[target] = finalizeModel({ ...model, platforms: { ...(model.platforms ?? {}), [platform]: rec } });
+
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
+      const backupPath = path.join(BACKUP_DIR, `models.merged.${stamp}.json`);
+      fs.copyFileSync(DATA_FILE, backupPath);
+      merged.models = Object.fromEntries(Object.entries(store).sort(([a], [b]) => a.localeCompare(b)));
+      merged.meta = merged.meta ?? {};
+      (merged.meta as any).last_synced_at = new Date().toISOString().slice(0, 19) + "Z";
+      (merged.meta as any).aggregation = { ...((merged.meta as any).aggregation ?? {}), merged_models: Object.keys(store).length, total: Object.keys(store).length };
+      fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+      models = store;
+      res.json({
+        ok: true,
+        action: `pricing: ${target}.${platform} tier ${tierIndex}${hasTiers ? "" : " (root)"}${monthly !== undefined ? " + allowance" : ""}`,
+        key: target,
+        platform,
+        tierIndex,
+        hasTiers,
+        pricing: rec.pricing,
+        allowance: rec.allowance ?? null,
+        model: store[target],
+        backup: path.basename(backupPath),
+        total: Object.keys(store).length,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "pricing update failed" });
+    }
+  });
+
   // GET /api/models/favorite?platform=opencode|cc-goat
   // 输出后端持久化的收藏模型（我的模型页 / dsh 等 agent 配置用），只返回收藏的、字段压扁。
   // 收藏存于 client/src/data/models.favorite.json（前端点心形图标时经 POST 同步写入）。
