@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  commandCodeModelUrl,
   displayProtocol,
   formatDate,
   formatPrice,
@@ -81,6 +82,12 @@ function PlatformRecordBlock({ platform, model }: { platform: PlatformKey; model
         <span>平台侧更新时间 {formatDate(record.updated_at as string | null)}</span>
         {record.source && <span className="source-label">来源已保留</span>}
       </div>
+      {platform === "cmdc" && (
+        <a className="record-online-link" href={commandCodeModelUrl(record.id)} target="_blank" rel="noreferrer">
+          <ExternalLink size={13} />
+          在 CommandCode 查看在线模型信息
+        </a>
+      )}
     </section>
   );
 }

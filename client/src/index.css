@@ -303,6 +303,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .record-metric { min-width: 0; }
 .record-metric strong { display: block; overflow: hidden; color: #c4bdb1; font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .record-footer { display: flex; justify-content: space-between; gap: 10px; margin-top: 17px; color: #77766e; font-family: "IBM Plex Mono", monospace; font-size: 10px; }
+.record-online-link { display: inline-flex; align-items: center; gap: 5px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(243,239,231,.12); color: var(--mint); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; transition: opacity 160ms var(--ease-out); }
+.record-online-link:hover { opacity: .78; }
 .source-label { color: var(--orange); }
 .capability-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .capability-list span { padding: 6px 9px; background: rgba(243,239,231,.06); color: #a5a197; font-size: 12px; }
@@ -527,7 +529,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .text-button--dark:hover { color: var(--orange); }
 .test-context { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; margin: 24px 0 25px; padding: 11px 12px; background: rgba(243,239,231,.06); }
 .test-context-label { color: #8e8c82; font-size: 12px; }
-.test-context code { overflow-wrap: anywhere; color: #c4bdb1; font-family: "IBM Plex Mono", monospace; font-size: 11px; text-align: right; }
+.test-context-id { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 4px 10px; text-align: right; }
+.test-context code { overflow-wrap: anywhere; color: #c4bdb1; font-family: "IBM Plex Mono", monospace; font-size: 11px; }
+.test-context-link { display: inline-flex; align-items: center; gap: 4px; color: var(--mint); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; transition: opacity 160ms var(--ease-out); }
+.test-context-link:hover { opacity: .78; }
 .test-price-row { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; margin: -14px 0 25px; padding: 11px 12px; background: rgba(243,239,231,.06); }
 .test-price-row--quotes { align-items: flex-start; }
 .test-price-quote-list { display: grid; gap: 7px; justify-items: end; text-align: right; }

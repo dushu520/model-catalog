@@ -1,9 +1,9 @@
 /* Editorial Atlas reminder: testing is an inspectable action—protocol, platform ID, and request state are always visible beside the response. */
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Play, Send, X } from "lucide-react";
+import { ExternalLink, Loader2, Play, Send, X } from "lucide-react";
 import { loadApiKeys } from "@/components/ApiKeyDialog";
-import { displayProtocol, formatPrice, MergedModel, PlatformKey, PLATFORM_META, Pricing } from "@/lib/model-catalog";
+import { commandCodeModelUrl, displayProtocol, formatPrice, MergedModel, PlatformKey, PLATFORM_META, Pricing } from "@/lib/model-catalog";
 
 type TestDialogProps = {
   model: MergedModel | null;
@@ -203,7 +203,7 @@ export default function TestDialog({ model, initialPlatform, onClose, onOpenSett
       <button className="dialog-backdrop" type="button" onClick={onClose} aria-label="关闭模型测试" />
       <section className="test-dialog" role="dialog" aria-modal="true" aria-labelledby="test-title">
         <div className="dialog-heading"><div className="dialog-title"><div className="dialog-icon dialog-icon--test"><Play size={17} /></div><div><p className="eyebrow">LIVE TEST / {model.key}</p><h2 id="test-title">测试 {model.name}</h2></div></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button></div>
-        <div className="test-context"><span className="test-context-label">当前调用身份</span><code>{record?.id ?? "该平台未收录"}</code></div>
+        <div className="test-context"><span className="test-context-label">当前调用身份</span><span className="test-context-id"><code>{record?.id ?? "该平台未收录"}</code>{platform === "cmdc" && record && <a className="test-context-link" href={commandCodeModelUrl(record.id)} target="_blank" rel="noreferrer"><ExternalLink size={12} />在线信息</a>}</span></div>
         <div className="test-price-row test-price-row--quotes" aria-label="当前平台全部报价">
           <span className="test-price-label">价格（USD / 1M token）</span>
           <span className="test-price-quote-list">

@@ -143,3 +143,11 @@ export function getDefaultContext(model: MergedModel) {
 export function getDefaultUpdatedAt(model: MergedModel) {
   return model.updated_at ?? model.updated_at_by_platform?.opencode ?? model.updated_at_by_platform?.cmdc;
 }
+
+// CommandCode 为每个模型建了在线页 commandcode.ai/models/<slug>（OpenCode 没有）。
+// slug 规则经全库实测：取平台 id 去掉厂商前缀（`vendor/name` 只留 name），再把点号换成横线
+// （`gpt-5.6-luna` → `gpt-5-6-luna`）。命中率 70/72，未单独建页的 id 会 302 跳到模型列表页。
+export function commandCodeModelUrl(id: string): string {
+  const slug = id.split("/").pop()!.replace(/\./g, "-").trim();
+  return `https://commandcode.ai/models/${encodeURIComponent(slug)}`;
+}
