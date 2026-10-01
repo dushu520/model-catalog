@@ -9,9 +9,9 @@ import TestDialog from "@/components/TestDialog";
 import rawData from "@/data/models.merged.json";
 import { loadHiddenKeys } from "@/lib/hidden-models";
 import { CatalogData, formatPrice, formatTokens, MergedModel, PlatformKey } from "@/lib/model-catalog";
+import { useCatalog } from "@/contexts/CatalogContext";
 
 const catalog = rawData as CatalogData;
-const allSharedModels = Object.values(catalog.models).filter((model) => model.coverage.count === 2);
 
 function monthlyAllowance(model: MergedModel, platform: PlatformKey) {
   const value = model.platforms[platform]?.allowance?.monthly_usd;
@@ -159,11 +159,13 @@ export default function Compare() {
   const [testModel, setTestModel] = useState<MergedModel | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hiddenVersion, setHiddenVersion] = useState(0);
+  const { models } = useCatalog();
+  const allSharedModels = useMemo(() => Object.values(models).filter((model) => model.coverage.count === 2), [models]);
   const sharedModels = useMemo(() => {
     void hiddenVersion;
     const hidden = new Set(loadHiddenKeys());
     return allSharedModels.filter((model) => !hidden.has(model.key));
-  }, [hiddenVersion]);
+  }, [allSharedModels, hiddenVersion]);
 
   useEffect(() => {
     const onFocus = () => setHiddenVersion((v) => v + 1);

@@ -29,6 +29,8 @@ function Router() {
 //   to keep consistent foreground/background color across components
 // - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
 
+import { CatalogProvider } from "./contexts/CatalogContext";
+
 function App() {
   return (
     <ErrorBoundary>
@@ -37,8 +39,10 @@ function App() {
         // switchable
       >
         <TooltipProvider>
-          <Toaster />
-          <Router />
+          <CatalogProvider>
+            <Toaster />
+            <Router />
+          </CatalogProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

@@ -43,8 +43,8 @@ export type MergedModel = {
   key: string;
   name: string;
   name_by_platform?: Partial<Record<PlatformKey, string>>;
-  provider: string;
-  category: "premium" | "opensource" | string;
+  provider: string | null;
+  category: "premium" | "opensource" | string | null;
   reasoning?: boolean | null;
   reasoning_by_platform?: Partial<Record<PlatformKey, boolean | null>>;
   /** 支持的推理强度档位（模型级，如 ["off","low","high","max"]），来自客户端可用配置 */

@@ -4,9 +4,9 @@ import { toast } from "sonner";
 import { loadApiKeys } from "@/components/ApiKeyDialog";
 import { MergedModel, PlatformKey, PLATFORM_META } from "@/lib/model-catalog";
 
-const ENRICH_MODEL_ID = "deepseek/deepseek-v4-flash";
+const ENRICH_MODEL_ID = "deepseek/deepseek-v4.1-flash";
 const ENRICH_ENDPOINT = "https://api.commandcode.ai/provider/v1/chat/completions";
-const CONCURRENCY = 3;
+const CONCURRENCY = 2;
 
 export const DOC_URLS: Record<PlatformKey, string> = {
   opencode: "https://opencode.ai/docs/zh-cn/go",
@@ -50,24 +50,117 @@ function emitCompleted(platform: PlatformKey, ids: string[], written: MergedMode
 
 export function buildEnrichPrompt(platform: PlatformKey, target: NewModel): string {
   const docUrl = DOC_URLS[platform];
-  return `使用 ${docUrl} 获取模型 ${ENRICH_MODEL_ID} 不存在时的模型ID，价格、上下文大小等相关参数，并用json返回。\n\n平台：${platform}（${PLATFORM_META[platform].label}）\n新增模型清单（以 /models 返回的真实调用 id 为准）：\n- ${target.id}\n\n要求：\n1. 对上新增模型，从官方文档页提取参数；关闭推理，只输出结构化 JSON。\n2. 严格按此 schema 输出 JSON 数组（每个记录 = 一个平台侧），字段缺省即官方页面未提供，不要编造：\n[{"platform":"${platform}","key":"<id 去厂商前缀后的规范小写横线形>","id":"<与上面清单完全一致的真实调用 id>","name":"<模型名>","provider":"<厂商>","category":"opensource|premium","context_size":<数字>,"pricing":{"input":<USD/1M>,"output":<USD/1M>,"cache_read":<USD/1M>,"cache_write":<USD/1M>,"tiers":[...]},"allowance":{"monthly_usd":<数字>,"plan_allowance":{...}},"notes":"<备注>"}]\n3. 价格单位一律 USD / 每 1M token；有分档（tier/峰谷）放 pricing.tiers。\n4. 只返回 JSON 数组，不要其他解释文字。`;
+  const knownName = target.name ? `（已知名称：${target.name}）` : "";
+  const knownCtx = typeof target.context_length === "number" ? `（已知上下文长度：${target.context_length}）` : "";
+  return `请根据你已知的模型知识或官方文档 ${docUrl} 的定义，为以下新增的 AI 模型输出结构化元数据参数。
+
+平台：${platform}（${PLATFORM_META[platform].label}）
+待添加模型：${target.id} ${knownName} ${knownCtx}
+
+要求：
+1. 请分析该模型名称与厂商，输出规范的 JSON 数组。
+2. 即使未获取到确切价格，也务必返回基本的有效条目（价格可为 null），不要拒绝回答。
+3. 严格按此 schema 输出一个 JSON 数组（只包含这一个模型）：
+[
+  {
+    "platform": "${platform}",
+    "key": "<模型 key，去掉厂商前缀后的规范小写横线形式，如 deepseek-v4.1-flash>",
+    "id": "${target.id}",
+    "name": "${target.name ?? target.id.split("/").pop() ?? target.id}",
+    "provider": "<所属厂商，如 DeepSeek, OpenAI, Anthropic, Google, Meta, Qwen, MiniMax, Moonshot 等>",
+    "category": "opensource",
+    "context_size": ${typeof target.context_length === "number" ? target.context_length : 131072},
+    "pricing": {
+      "input": null,
+      "output": null,
+      "cache_read": null,
+      "cache_write": null,
+      "tiers": []
+    },
+    "notes": "自动提取"
+  }
+]
+4. 只返回包含该 JSON 数组的代码块或原始 JSON，不要包含任何额外的问候或前言解释。`;
+}
+
+/** 规范化 key：去除厂商前缀，转小写短横线 */
+function deriveCanonicalKey(id: string): string {
+  const bare = id.split("/").pop() ?? id;
+  return bare.toLowerCase().replace(/[^a-z0-9._-]/g, "-");
+}
+
+/** 猜测厂商 */
+function guessProvider(id: string, name?: string): string {
+  const text = `${id} ${name ?? ""}`.toLowerCase();
+  if (text.includes("deepseek")) return "DeepSeek";
+  if (text.includes("openai") || text.includes("gpt-") || text.includes("o1") || text.includes("o3")) return "OpenAI";
+  if (text.includes("anthropic") || text.includes("claude")) return "Anthropic";
+  if (text.includes("google") || text.includes("gemini")) return "Google";
+  if (text.includes("meta") || text.includes("llama")) return "Meta";
+  if (text.includes("qwen")) return "Qwen";
+  if (text.includes("minimax")) return "MiniMax";
+  if (text.includes("kimi") || text.includes("moonshot")) return "Moonshot";
+  if (text.includes("glm") || text.includes("zhipu")) return "Zhipu";
+  if (text.includes("mistral")) return "Mistral";
+  return "AI";
+}
+
+/** 当 LLM 提取失败或无 Key 时的兜底模型结构，确保添加 100% 成功入库 */
+function buildFallbackRecord(platform: PlatformKey, target: NewModel): Record<string, any> {
+  const key = deriveCanonicalKey(target.id);
+  const name = target.name || (target.id.split("/").pop() ?? target.id);
+  const provider = guessProvider(target.id, target.name);
+  return {
+    platform,
+    key,
+    id: target.id,
+    name,
+    provider,
+    category: "opensource",
+    context_size: typeof target.context_length === "number" ? target.context_length : 131072,
+    pricing: {
+      input: null,
+      output: null,
+      cache_read: null,
+      cache_write: null,
+      tiers: [],
+    },
+    notes: "基础元数据（可点击改价补充详细参数）",
+  };
 }
 
 function extractJsonArray(text: string): unknown[] {
-  const direct = (() => {
+  // 1. 优先尝试直接 parse
+  try {
+    const direct = JSON.parse(text);
+    if (Array.isArray(direct)) return direct;
+    if (direct && typeof direct === "object") return [direct];
+  } catch {}
+
+  // 2. 匹配 ```json ... ``` 或 [ ... ]
+  const blockMatch = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(text);
+  const candidate = blockMatch ? blockMatch[1] : text;
+
+  const start = candidate.indexOf("[");
+  const end = candidate.lastIndexOf("]");
+  if (start >= 0 && end > start) {
     try {
-      return JSON.parse(text);
-    } catch {
-      return null;
-    }
-  })();
-  if (Array.isArray(direct)) return direct;
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start < 0 || end <= start) throw new Error("LLM 返回中未找到 JSON 数组");
-  const parsed: unknown = JSON.parse(text.slice(start, end + 1));
-  if (!Array.isArray(parsed)) throw new Error("LLM 返回不是 JSON 数组");
-  return parsed;
+      const parsed = JSON.parse(candidate.slice(start, end + 1));
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+
+  // 3. 匹配单个对象 { ... }
+  const objStart = candidate.indexOf("{");
+  const objEnd = candidate.lastIndexOf("}");
+  if (objStart >= 0 && objEnd > objStart) {
+    try {
+      const parsed = JSON.parse(candidate.slice(objStart, objEnd + 1));
+      if (parsed && typeof parsed === "object") return [parsed];
+    } catch {}
+  }
+
+  throw new Error("LLM 返回中未解析出合法的 JSON");
 }
 
 function readChoiceText(payload: unknown): string {
@@ -83,33 +176,55 @@ function readChoiceText(payload: unknown): string {
   return "";
 }
 
-// 单个模型：LLM 提取参数 → 写入 data 文件。返回写入的模型列表。
-async function runItem(item: QueueItem, ccKey: string): Promise<MergedModel[]> {
-  const resp = await fetch(ENRICH_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ccKey}` },
-    body: JSON.stringify({
-      model: ENRICH_MODEL_ID,
-      messages: [{ role: "user", content: buildEnrichPrompt(item.platform, item.model) }],
-      temperature: 0,
-      stream: false,
-      // CommandCode 只接受 low|medium|high|xhigh|max，用最低档 low 近似关闭推理
-      reasoning_effort: "low",
-    }),
-    signal: AbortSignal.timeout(120000),
-  });
-  const text = await resp.text();
-  if (!resp.ok) throw new Error(`参数提取失败 ${resp.status}: ${text.slice(0, 300)}`);
-  const results = extractJsonArray(readChoiceText(JSON.parse(text) as unknown));
-  const resp2 = await fetch("/api/maintenance/apply", {
+// 写入数据文件
+async function applyModels(records: unknown[]): Promise<MergedModel[]> {
+  const resp = await fetch("/api/maintenance/apply", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ models: results }),
+    body: JSON.stringify({ models: records }),
     signal: AbortSignal.timeout(30000),
   });
-  const body = (await resp2.json()) as { ok?: boolean; error?: string; updated?: Array<{ model: MergedModel }> };
-  if (!resp2.ok || !body.ok) throw new Error(body.error ?? `写入失败 ${resp2.status}`);
+  const body = (await resp.json()) as { ok?: boolean; error?: string; updated?: Array<{ model: MergedModel }> };
+  if (!resp.ok || !body.ok) throw new Error(body.error ?? `写入失败 ${resp.status}`);
   return (body.updated ?? []).map((u) => u.model);
+}
+
+// 单个模型：优先 LLM 提取参数，失败或超时则采用保底机制写入 data 文件
+async function runItem(item: QueueItem, ccKey: string): Promise<MergedModel[]> {
+  let records: unknown[] | null = null;
+
+  if (ccKey) {
+    try {
+      const resp = await fetch(ENRICH_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ccKey}` },
+        body: JSON.stringify({
+          model: ENRICH_MODEL_ID,
+          messages: [{ role: "user", content: buildEnrichPrompt(item.platform, item.model) }],
+          temperature: 0.1,
+          stream: false,
+          reasoning_effort: "low",
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+      if (resp.ok) {
+        const text = await resp.text();
+        const extracted = extractJsonArray(readChoiceText(JSON.parse(text) as unknown));
+        if (extracted.length > 0) {
+          records = extracted;
+        }
+      }
+    } catch (e) {
+      console.warn(`[enrich-queue] LLM 提取模型 ${item.model.id} 参数失败，降级为保底模板:`, e);
+    }
+  }
+
+  // 若 LLM 未提取成功（网络原因、没有key、或LLM拒绝），使用基础兜底结构保证添加成功
+  if (!records || records.length === 0) {
+    records = [buildFallbackRecord(item.platform, item.model)];
+  }
+
+  return await applyModels(records);
 }
 
 function dropItem(item: QueueItem) {
@@ -119,18 +234,6 @@ function dropItem(item: QueueItem) {
 
 async function pump() {
   const ccKey = loadApiKeys().cmdc;
-  if (!ccKey) {
-    const orphans = items.filter((i) => i.status === "pending");
-    for (const o of orphans) {
-      o.status = "failed";
-      o.error = "未设置 CommandCode API Key";
-    }
-    if (orphans.length > 0) {
-      emit();
-      toast.error("尚未设置 CommandCode API Key，请先在设置中填入 CC_KEY");
-    }
-    return;
-  }
   while (active < CONCURRENCY) {
     const next = items.find((i) => i.status === "pending");
     if (!next) break;

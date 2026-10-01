@@ -35,9 +35,9 @@ import {
   PLATFORM_KEYS,
   PLATFORM_META,
 } from "@/lib/model-catalog";
+import { useCatalog } from "@/contexts/CatalogContext";
 
 const catalog = rawData as CatalogData;
-const allCatalogModels = Object.values(catalog.models);
 const spotlightModel = catalog.models["deepseek-v4-flash"];
 const categories = ["全部类型", "premium", "opensource"] as const;
 
@@ -97,11 +97,13 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [visibleCount, setVisibleCount] = useState(10);
   const [hiddenVersion, setHiddenVersion] = useState(0);
+  const { models: dynamicModels } = useCatalog();
+  const allCatalogModels = useMemo(() => Object.values(dynamicModels), [dynamicModels]);
   const models = useMemo(() => {
     void hiddenVersion;
     const hidden = new Set(loadHiddenKeys());
     return allCatalogModels.filter((model) => !hidden.has(model.key));
-  }, [hiddenVersion]);
+  }, [allCatalogModels, hiddenVersion]);
 
   const filteredModels = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();

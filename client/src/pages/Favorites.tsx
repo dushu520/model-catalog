@@ -30,8 +30,11 @@ function effortsText(model: MergedModel): string {
   return efforts.join(" · ");
 }
 
+import { useCatalog } from "@/contexts/CatalogContext";
+
 export default function Favorites() {
   const [favorites, setFavorites] = useState<FavoriteRef[]>(() => loadFavorites());
+  const { models } = useCatalog();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [drawerModel, setDrawerModel] = useState<MergedModel | null>(null);
   const [testModel, setTestModel] = useState<MergedModel | null>(null);
@@ -54,11 +57,11 @@ export default function Favorites() {
   const rows: FavRow[] = useMemo(() => {
     const out: FavRow[] = [];
     for (const ref of favorites) {
-      const model = catalog.models[ref.key];
+      const model = models[ref.key] ?? catalog.models[ref.key];
       if (model && model.platforms[ref.platform]) out.push({ ref, model });
     }
     return out;
-  }, [favorites]);
+  }, [favorites, models]);
 
   const openTest = (model: MergedModel, platform: PlatformKey) => {
     setTestModel(model);

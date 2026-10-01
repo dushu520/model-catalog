@@ -237,10 +237,75 @@ function litellmEntry(model: Record<string, any>, platformRec: Record<string, an
   return entry;
 }
 
-function loadCatalog(): Record<string, unknown> {
-  const raw = fs.readFileSync(DATA_FILE, "utf-8");
-  const parsed = JSON.parse(raw) as { models?: Record<string, unknown> };
-  return parsed.models ?? {};
+import { isRedisConfigured, redisGet, redisSet } from "./redis";
+
+const REDIS_MODELS_KEY = "model-catalog:models.merged:v1";
+const REDIS_FAVORITES_KEY = "model-catalog:models.favorite:v1";
+
+function loadCatalogLocal(): { meta: Record<string, any>; models: Record<string, any> } {
+  try {
+    const raw = fs.readFileSync(DATA_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    return {
+      meta: parsed.meta ?? {},
+      models: parsed.models ?? {},
+    };
+  } catch (err) {
+    console.error("loadCatalogLocal failed:", err);
+    return { meta: {}, models: {} };
+  }
+}
+
+async function loadCatalog(): Promise<{ meta: Record<string, any>; models: Record<string, any> }> {
+  if (isRedisConfigured) {
+    try {
+      const cached = await redisGet<{ meta: Record<string, any>; models: Record<string, any> }>(REDIS_MODELS_KEY);
+      if (cached && cached.models && Object.keys(cached.models).length > 0) {
+        console.log(`[Storage] Loaded ${Object.keys(cached.models).length} models from Upstash Redis`);
+        return cached;
+      }
+    } catch (e) {
+      console.warn("[Storage] Failed to read from Redis, falling back to local file:", e);
+    }
+  }
+  const local = loadCatalogLocal();
+  // 如果配置了 Redis 且 Redis 还是空的，自动将本地初始数据填充进 Redis
+  if (isRedisConfigured && local.models && Object.keys(local.models).length > 0) {
+    void redisSet(REDIS_MODELS_KEY, local);
+  }
+  return local;
+}
+
+async function persistCatalog(merged: { meta?: Record<string, any>; models?: Record<string, any> }): Promise<string | null> {
+  const payload = {
+    meta: merged.meta ?? {},
+    models: merged.models ?? {},
+  };
+  // 1. 如果配置了 Redis，持久化到 Redis
+  if (isRedisConfigured) {
+    try {
+      await redisSet(REDIS_MODELS_KEY, payload);
+      console.log(`[Storage] Persisted ${Object.keys(payload.models).length} models to Upstash Redis`);
+    } catch (err) {
+      console.error("[Storage] Failed to persist to Redis:", err);
+    }
+  }
+
+  // 2. 尝试写入本地文件并备份（如果在非只读环境，如本地运行）
+  let backupName: string | null = null;
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
+    const backupPath = path.join(BACKUP_DIR, `models.merged.${stamp}.json`);
+    if (fs.existsSync(DATA_FILE)) {
+      fs.copyFileSync(DATA_FILE, backupPath);
+      backupName = path.basename(backupPath);
+    }
+    fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  } catch {
+    // Vercel Serverless 环境为只读文件系统，无法写本地文件是正常的
+  }
+  return backupName;
 }
 
 type FavRef = { platform: string; key: string };
@@ -251,8 +316,14 @@ function isValidFavRef(x: unknown): x is FavRef {
   return (ref.platform === "opencode" || ref.platform === "cmdc") && typeof ref.key === "string" && ref.key.length > 0;
 }
 
-// 收藏持久化：server/models.favorite.json，[{platform,key}]，按平台侧存
-function readFavoritesFile(): FavRef[] {
+// 收藏持久化：Redis 或 local JSON 文件
+async function readFavorites(): Promise<FavRef[]> {
+  if (isRedisConfigured) {
+    try {
+      const cached = await redisGet<FavRef[]>(REDIS_FAVORITES_KEY);
+      if (Array.isArray(cached)) return cached.filter(isValidFavRef);
+    } catch {}
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(FAVORITES_FILE, "utf-8")) as unknown;
     const list = Array.isArray(parsed) ? parsed : (parsed as { favorites?: unknown }).favorites;
@@ -262,7 +333,7 @@ function readFavoritesFile(): FavRef[] {
   }
 }
 
-function writeFavoritesFile(refs: FavRef[]): void {
+async function writeFavorites(refs: FavRef[]): Promise<void> {
   const clean = refs.filter(isValidFavRef);
   const seen = new Set<string>();
   const deduped = clean.filter((ref) => {
@@ -271,7 +342,20 @@ function writeFavoritesFile(refs: FavRef[]): void {
     seen.add(id);
     return true;
   });
-  fs.writeFileSync(FAVORITES_FILE, JSON.stringify({ favorites: deduped }, null, 2) + "\n", "utf-8");
+
+  if (isRedisConfigured) {
+    try {
+      await redisSet(REDIS_FAVORITES_KEY, deduped);
+    } catch (err) {
+      console.error("[Storage] Failed to save favorites to Redis:", err);
+    }
+  }
+
+  try {
+    fs.writeFileSync(FAVORITES_FILE, JSON.stringify({ favorites: deduped }, null, 2) + "\n", "utf-8");
+  } catch {
+    // 只读环境忽略
+  }
 }
 
 // 按平台投影：只保留该平台的视图。
@@ -310,8 +394,9 @@ async function startServer() {
   const server = createServer(app);
   app.use(express.json({ limit: "2mb" }));
 
-  // 模型目录数据（启动时读一次；维护写入后会同步更新内存并落盘）
-  let models = loadCatalog() as Record<string, Record<string, any>>
+  // 模型目录数据（启动时从 Redis 或 本地 JSON 读取；维护写入后会同步持久化）
+  let catalogData = await loadCatalog();
+  let models = (catalogData.models ?? {}) as Record<string, Record<string, any>>;
 
   // GET /api/models?platform=oc&model=deepseek-v4-pro
   // 过滤参数均可选：不带返回全部；platform 归一化（无法识别返回空）；model 匹配 key/name（忽略 -_. 与大小写）
@@ -464,7 +549,7 @@ async function startServer() {
   // POST /api/maintenance/apply — 把 LLM 产出的模型参数 JSON 合并进 models.merged.json
   // body: {models:[{platform,key,id,name?,provider?,category?,context_size?,max_output?,pricing?,allowance?,discount?,notes?,protocols?,multimodal?,deprecated?}]}
   // 只写提供的字段；写前自动备份；成功后同步更新内存并返回 actions + updated 模型
-  app.post("/api/maintenance/apply", (req, res) => {
+  app.post("/api/maintenance/apply", async (req, res) => {
     const docs = (req.body as { models?: unknown })?.models;
     const list: Array<Record<string, any>> = Array.isArray(docs) ? (docs as Array<Record<string, any>>) : [];
     if (list.length === 0 || list.length > 50) {
@@ -499,17 +584,14 @@ async function startServer() {
           updated.push({ key, platform, model: store[key] });
         }
       }
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-      const stamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
-      const backupPath = path.join(BACKUP_DIR, `models.merged.${stamp}.json`);
-      fs.copyFileSync(DATA_FILE, backupPath);
       merged.models = Object.fromEntries(Object.entries(store).sort(([a], [b]) => a.localeCompare(b)));
       merged.meta = merged.meta ?? {};
       (merged.meta as any).last_synced_at = new Date().toISOString().slice(0, 19) + "Z";
       (merged.meta as any).aggregation = { ...((merged.meta as any).aggregation ?? {}), merged_models: Object.keys(store).length, total: Object.keys(store).length };
-      fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+      
+      const backup = await persistCatalog(merged);
       models = store;
-      res.json({ ok: true, actions, updated, backup: path.basename(backupPath), total: Object.keys(store).length });
+      res.json({ ok: true, actions, updated, backup: backup ?? "redis", total: Object.keys(store).length });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : "apply failed" });
     }
@@ -517,7 +599,7 @@ async function startServer() {
 
   // POST /api/maintenance/remove — 从配置中移除某模型的一个平台参数
   // body: {key, platform}；移除后若无平台则彻底删除该模型；写前自动备份
-  app.post("/api/maintenance/remove", (req, res) => {
+  app.post("/api/maintenance/remove", async (req, res) => {
     const key = typeof (req.body as { key?: unknown })?.key === "string" ? String((req.body as { key?: string }).key).trim() : "";
     const rawPlatform = String((req.body as { platform?: unknown })?.platform ?? "").toLowerCase();
     const platform = rawPlatform === "opencode" ? "opencode" : rawPlatform === "cmdc" ? "cmdc" : "";
@@ -551,17 +633,14 @@ async function startServer() {
         store[target] = finalizeModel({ ...model, platforms });
         action = `remove: ${target}.${platform} (kept ${remaining.join("+")})`;
       }
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-      const stamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
-      const backupPath = path.join(BACKUP_DIR, `models.merged.${stamp}.json`);
-      fs.copyFileSync(DATA_FILE, backupPath);
       merged.models = Object.fromEntries(Object.entries(store).sort(([a], [b]) => a.localeCompare(b)));
       merged.meta = merged.meta ?? {};
       (merged.meta as any).last_synced_at = new Date().toISOString().slice(0, 19) + "Z";
       (merged.meta as any).aggregation = { ...((merged.meta as any).aggregation ?? {}), merged_models: Object.keys(store).length, total: Object.keys(store).length };
-      fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+      
+      const backup = await persistCatalog(merged);
       models = store;
-      res.json({ ok: true, action, deleted: remaining.length === 0, key: target, platform, remaining, backup: path.basename(backupPath), total: Object.keys(store).length });
+      res.json({ ok: true, action, deleted: remaining.length === 0, key: target, platform, remaining, backup: backup ?? "redis", total: Object.keys(store).length });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : "remove failed" });
     }
@@ -573,7 +652,7 @@ async function startServer() {
   //   - body 未出现的价格字段一律保持原值；显式传 null 表示清空该字段
   //   - 改 tier 0（含无 tiers 的根级）时同步写回根级主价格，维持 tiers[0] ≡ pricing 的不变量
   //   - 只触碰 pricing/allowance，不动 id、协议、多模态等字段；写前自动备份
-  app.post("/api/maintenance/pricing", (req, res) => {
+  app.post("/api/maintenance/pricing", async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const key = typeof body.key === "string" ? body.key.trim() : "";
     const rawPlatform = String(body.platform ?? "").toLowerCase();
@@ -655,15 +734,12 @@ async function startServer() {
       }
       store[target] = finalizeModel({ ...model, platforms: { ...(model.platforms ?? {}), [platform]: rec } });
 
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-      const stamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
-      const backupPath = path.join(BACKUP_DIR, `models.merged.${stamp}.json`);
-      fs.copyFileSync(DATA_FILE, backupPath);
       merged.models = Object.fromEntries(Object.entries(store).sort(([a], [b]) => a.localeCompare(b)));
       merged.meta = merged.meta ?? {};
       (merged.meta as any).last_synced_at = new Date().toISOString().slice(0, 19) + "Z";
       (merged.meta as any).aggregation = { ...((merged.meta as any).aggregation ?? {}), merged_models: Object.keys(store).length, total: Object.keys(store).length };
-      fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+      
+      const backup = await persistCatalog(merged);
       models = store;
       res.json({
         ok: true,
@@ -675,7 +751,7 @@ async function startServer() {
         pricing: rec.pricing,
         allowance: rec.allowance ?? null,
         model: store[target],
-        backup: path.basename(backupPath),
+        backup: backup ?? "redis",
         total: Object.keys(store).length,
       });
     } catch (error) {
@@ -693,7 +769,7 @@ async function startServer() {
   //   - contextWindow/maxTokens：模型级 context_size/max_output（平台独立值优先）
   //   - input：该平台侧 multimodal（如 [text]）
   //   - reasoningEfforts：{off,low,medium,high,xhigh,max}，有该档则映射自己、无则 null
-  app.get("/api/models/favorite", (req, res) => {
+  app.get("/api/models/favorite", async (req, res) => {
     const qPlatform = String(req.query.platform ?? "").trim().toLowerCase();
     const platformKey = qPlatform ? (PLATFORM_ALIASES[qPlatform] ?? null) : undefined;
     if (qPlatform && platformKey === null) {
@@ -702,7 +778,7 @@ async function startServer() {
     }
 
     type FavRef = { platform: string; key: string };
-    let refs: FavRef[] = readFavoritesFile();
+    let refs: FavRef[] = await readFavorites();
     const rawFav = String(req.query.favorites ?? "").trim();
     if (rawFav) {
       try {
@@ -781,14 +857,14 @@ async function startServer() {
   });
 
   // GET /api/models/favorites — 后端持久化的原始收藏引用（前端同步/回填用）
-  app.get("/api/models/favorites", (_req, res) => {
+  app.get("/api/models/favorites", async (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    res.json({ favorites: readFavoritesFile() });
+    res.json({ favorites: await readFavorites() });
   });
 
-  // POST /api/models/favorites — 整体覆盖后端收藏并落盘 models.favorite.json
+  // POST /api/models/favorites — 整体覆盖后端收藏并持久化
   // body: {favorites:[{platform,key}]}，返回落盘后的收藏
-  app.post("/api/models/favorites", (req, res) => {
+  app.post("/api/models/favorites", async (req, res) => {
     const list = (req.body as { favorites?: unknown })?.favorites;
     if (!Array.isArray(list)) {
       res.status(400).json({ error: "body.favorites must be an array of {platform,key}" });
@@ -798,8 +874,8 @@ async function startServer() {
       .filter(isValidFavRef)
       .map((x) => ({ platform: x.platform, key: x.key }));
     try {
-      writeFavoritesFile(refs);
-      res.json({ ok: true, favorites: readFavoritesFile() });
+      await writeFavorites(refs);
+      res.json({ ok: true, favorites: await readFavorites() });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : "write failed" });
     }
@@ -820,12 +896,19 @@ async function startServer() {
 
   const port = process.env.PORT || 3006;
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
-  });
+  if (process.env.VERCEL !== "1") {
+    server.listen(port, () => {
+      console.log(`Server running on http://localhost:${port}/`);
+    });
+  }
+
+  return app;
 }
 
-startServer().catch(console.error);
+export const appPromise = startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  throw err;
+});
 
 // 兜底：单个异常请求（如无法解码的 URL）不应拖垮整个服务
 process.on("uncaughtException", (err) => {

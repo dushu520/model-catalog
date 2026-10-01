@@ -19,6 +19,7 @@ import {
 import { isFavorite, loadFavorites, toggleFavorite, type FavoriteRef } from "@/lib/favorites";
 import { hideModelKey, loadHiddenKeys, persistHiddenKeys, unhideModelKey } from "@/lib/hidden-models";
 import { CatalogData, MergedModel, PlatformKey, PLATFORM_META } from "@/lib/model-catalog";
+import { useCatalog } from "@/contexts/CatalogContext";
 
 const catalog = rawData as CatalogData;
 
@@ -281,12 +282,17 @@ export default function Maintenance() {
     setPriceEdit({ model, platform });
   };
 
+  const { refresh: refreshGlobalCatalog } = useCatalog();
+
   const reloadLocal = async (silent = false) => {
     setLocalLoading(true);
     try {
       const resp = await fetch("/api/maintenance/local", { signal: AbortSignal.timeout(15000) });
       const body = (await resp.json()) as { models?: Record<string, MergedModel> };
-      if (resp.ok && body.models) setLocalModels(Object.values(body.models));
+      if (resp.ok && body.models) {
+        setLocalModels(Object.values(body.models));
+        void refreshGlobalCatalog();
+      }
     } catch {
       if (!silent) toast.error("本地数据拉取失败，仍显示构建时快照");
     } finally {
@@ -388,26 +394,16 @@ export default function Maintenance() {
     }
   };
 
-  // 新增改为后台队列：立即入队返回，固定并发 3 条在后台跑，可关弹窗/切页。
-  const requireKey = (): boolean => {
-    if (loadApiKeys().cmdc) return true;
-    toast.error("尚未设置 CommandCode API Key，请先打开设置");
-    setSettingsOpen(true);
-    return false;
-  };
-
+  // 新增改为后台队列：立即入队返回，后台跑，可关弹窗/切页。
   const addOne = (platform: PlatformKey, item: NewModel) => {
-    if (!requireKey()) return;
     submitEnrich(platform, [item]);
   };
 
   const addAll = (platform: PlatformKey, items: NewModel[]) => {
-    if (!requireKey()) return;
     submitEnrich(platform, items);
   };
 
   const retryOne = (platform: PlatformKey, item: NewModel) => {
-    if (!requireKey()) return;
     retryEnrich(platform, item);
   };
 
@@ -557,7 +553,7 @@ export default function Maintenance() {
 
       <footer className="catalog-footer">
         <div><img src="/model-catalog-mark.svg" alt="" className="footer-mark" /><span>Model Catalog / maintenance workbench</span></div>
-        <span>更新先经官方 /models 对比；新增参数由 deepseek-v4-flash 读取文档页生成</span>
+        <span>更新先经官方 /models 对比；新增参数由 deepseek-v4.1-flash 提取并写入</span>
       </footer>
       <ApiKeyDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TestDialog model={testModel} initialPlatform={testPlatform} onClose={closeTest} onOpenSettings={() => setSettingsOpen(true)} />
@@ -615,7 +611,7 @@ export default function Maintenance() {
                         <Plus size={14} />
                         全部新增（{report.added.length}）
                       </button>
-                      <span className="maint-queue-note">后台并发 3 条，可关闭本窗口继续</span>
+                      <span className="maint-queue-note">后台平稳处理中，可关闭本窗口继续</span>
                     </div>
                     <div className="maint-report-list">
                       {report.added.map((item) => {
@@ -645,7 +641,7 @@ export default function Maintenance() {
                     </div>
                   </>
                 )}
-                <p className="maint-hint">新增即用 deepseek-v4-flash 读取官方文档页提取参数并直接写入对应平台位置（自动备份）。任务在后台队列运行，可关闭窗口或切换页面。</p>
+                <p className="maint-hint">新增通过 deepseek-v4.1-flash 提取参数或自动初始化基础模型写入对应平台，支持写入后即刻改价。任务在后台队列运行，可随时关闭窗口。</p>
               </div>
             ) : (
               <div>
