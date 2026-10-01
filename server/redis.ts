@@ -3,42 +3,72 @@
  * 环境变量支持（Vercel Upstash 集成时会自动注入以下几种变量名之一）：
  * 1. UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
  * 2. KV_REST_API_URL / KV_REST_API_TOKEN
- * 3. 带有特定数据库后缀的变量（如 UPSTASH_REDIS_REST_KV_...）
+ * 3. 带有数据库名称后缀的变量（如 UPSTASH_KV_PINK_LAMP_REST_API_URL）
  */
 
-function getEnv(keys: string[]): string | undefined {
-  for (const k of keys) {
-    if (process.env[k]) return process.env[k];
+export function getRedisUrl(): string | undefined {
+  const directNames = [
+    "UPSTASH_REDIS_REST_URL",
+    "KV_REST_API_URL",
+    "REDIS_URL",
+    "KV_URL",
+  ];
+  for (const name of directNames) {
+    if (process.env[name]) return process.env[name];
   }
-  // 扫描所有匹配的 UPSTASH_ 或 KV_ 环境变量
+  // 扫描所有匹配的 REST_URL / REST_API_URL
   for (const [k, v] of Object.entries(process.env)) {
-    if (v && (k.endsWith("_REST_URL") || k.endsWith("_REST_API_URL"))) {
-      if (keys.includes("URL")) return v;
-    }
-    if (v && (k.endsWith("_REST_TOKEN") || k.endsWith("_REST_API_TOKEN"))) {
-      if (keys.includes("TOKEN")) return v;
+    if (v && (k.endsWith("_REST_URL") || k.endsWith("_REST_API_URL") || k.endsWith("_URL"))) {
+      if (v.startsWith("http://") || v.startsWith("https://")) {
+        return v;
+      }
     }
   }
   return undefined;
 }
 
-const url = getEnv(["UPSTASH_REDIS_REST_URL", "KV_REST_API_URL", "URL"]);
-const token = getEnv(["UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN", "TOKEN"]);
+export function getRedisToken(): string | undefined {
+  const directNames = [
+    "UPSTASH_REDIS_REST_TOKEN",
+    "KV_REST_API_TOKEN",
+    "REDIS_TOKEN",
+  ];
+  for (const name of directNames) {
+    if (process.env[name]) return process.env[name];
+  }
+  // 扫描所有匹配的 REST_TOKEN / REST_API_TOKEN（排除只读 token）
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v && !k.includes("READ_ONLY") && (k.endsWith("_REST_TOKEN") || k.endsWith("_REST_API_TOKEN") || k.endsWith("_TOKEN"))) {
+      return v;
+    }
+  }
+  return undefined;
+}
 
-export const isRedisConfigured = Boolean(url && token);
+export function isRedisConfigured(): boolean {
+  return Boolean(getRedisUrl() && getRedisToken());
+}
 
 export async function redisGet<T = any>(key: string): Promise<T | null> {
-  if (!isRedisConfigured) return null;
+  const url = getRedisUrl();
+  const token = getRedisToken();
+  if (!url || !token) return null;
   try {
-    const cleanUrl = url!.replace(/\/$/, "");
-    const resp = await fetch(`${cleanUrl}/get/${encodeURIComponent(key)}`, {
+    const cleanUrl = url.replace(/\/$/, "");
+    const resp = await fetch(cleanUrl, {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
-      signal: AbortSignal.timeout(5000),
+      body: JSON.stringify(["GET", key]),
+      signal: AbortSignal.timeout(6000),
     });
-    if (!resp.ok) return null;
-    const body = (await resp.json()) as { result?: any };
+    if (!resp.ok) {
+      console.warn(`[Redis] GET ${key} status ${resp.status}`);
+      return null;
+    }
+    const body = (await resp.json()) as { result?: any; error?: string };
     if (!body || body.result === null || body.result === undefined) return null;
     if (typeof body.result === "string") {
       try {
@@ -55,20 +85,29 @@ export async function redisGet<T = any>(key: string): Promise<T | null> {
 }
 
 export async function redisSet(key: string, value: any): Promise<boolean> {
-  if (!isRedisConfigured) return false;
+  const url = getRedisUrl();
+  const token = getRedisToken();
+  if (!url || !token) return false;
   try {
-    const cleanUrl = url!.replace(/\/$/, "");
+    const cleanUrl = url.replace(/\/$/, "");
     const payload = typeof value === "string" ? value : JSON.stringify(value);
-    const resp = await fetch(`${cleanUrl}/set/${encodeURIComponent(key)}`, {
+    const resp = await fetch(cleanUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify(["SET", key, payload]),
+      signal: AbortSignal.timeout(10000),
     });
-    return resp.ok;
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      console.error(`[Redis] SET ${key} failed (${resp.status}): ${errText}`);
+      return false;
+    }
+    const result = await resp.json().catch(() => ({}));
+    console.log(`[Redis] SET ${key} success:`, result);
+    return true;
   } catch (err) {
     console.error(`[Redis] SET ${key} error:`, err);
     return false;

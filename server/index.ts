@@ -267,7 +267,7 @@ function loadCatalogLocal(): { meta: Record<string, any>; models: Record<string,
 }
 
 async function loadCatalog(): Promise<{ meta: Record<string, any>; models: Record<string, any> }> {
-  if (isRedisConfigured) {
+  if (isRedisConfigured()) {
     try {
       const cached = await redisGet<{ meta: Record<string, any>; models: Record<string, any> }>(REDIS_MODELS_KEY);
       if (cached && cached.models && Object.keys(cached.models).length > 0) {
@@ -280,7 +280,7 @@ async function loadCatalog(): Promise<{ meta: Record<string, any>; models: Recor
   }
   const local = loadCatalogLocal();
   // 如果配置了 Redis 且 Redis 还是空的，自动将本地初始数据填充进 Redis
-  if (isRedisConfigured && local.models && Object.keys(local.models).length > 0) {
+  if (isRedisConfigured() && local.models && Object.keys(local.models).length > 0) {
     try {
       await redisSet(REDIS_MODELS_KEY, local);
       console.log(`[Storage] Initialized Upstash Redis with ${Object.keys(local.models).length} models`);
@@ -297,7 +297,7 @@ async function persistCatalog(merged: { meta?: Record<string, any>; models?: Rec
     models: merged.models ?? {},
   };
   // 1. 如果配置了 Redis，持久化到 Redis
-  if (isRedisConfigured) {
+  if (isRedisConfigured()) {
     try {
       await redisSet(REDIS_MODELS_KEY, payload);
       console.log(`[Storage] Persisted ${Object.keys(payload.models).length} models to Upstash Redis`);
@@ -333,7 +333,7 @@ function isValidFavRef(x: unknown): x is FavRef {
 
 // 收藏持久化：Redis 或 local JSON 文件
 async function readFavorites(): Promise<FavRef[]> {
-  if (isRedisConfigured) {
+  if (isRedisConfigured()) {
     try {
       const cached = await redisGet<FavRef[]>(REDIS_FAVORITES_KEY);
       if (Array.isArray(cached)) return cached.filter(isValidFavRef);
@@ -358,7 +358,7 @@ async function writeFavorites(refs: FavRef[]): Promise<void> {
     return true;
   });
 
-  if (isRedisConfigured) {
+  if (isRedisConfigured()) {
     try {
       await redisSet(REDIS_FAVORITES_KEY, deduped);
     } catch (err) {
@@ -404,18 +404,73 @@ function projectToPlatform(model: unknown, platformKey: string): unknown {
   return out;
 }
 
-async function startServer() {
-  const app = express();
-  const server = createServer(app);
-  app.use(express.json({ limit: "2mb" }));
+export const app = express();
+app.use(express.json({ limit: "2mb" }));
 
-  // 模型目录数据（启动时从 Redis 或 本地 JSON 读取；维护写入后会同步持久化）
-  let catalogData = await loadCatalog();
-  let models = (catalogData.models ?? {}) as Record<string, Record<string, any>>;
+// 内存中缓存的模型数据
+let catalogData = loadCatalogLocal();
+let models = (catalogData.models ?? {}) as Record<string, Record<string, any>>;
 
-  // GET /api/models?platform=oc&model=deepseek-v4-pro
-  // 过滤参数均可选：不带返回全部；platform 归一化（无法识别返回空）；model 匹配 key/name（忽略 -_. 与大小写）
-  app.get("/api/models", (req: Request, res: Response) => {
+// 启动时在后台尝试同步 Redis 数据
+if (isRedisConfigured()) {
+  loadCatalog()
+    .then((fresh) => {
+      if (fresh && fresh.models && Object.keys(fresh.models).length > 0) {
+        models = fresh.models;
+        console.log(`[Storage] Synced ${Object.keys(models).length} models into memory from Upstash Redis`);
+      }
+    })
+    .catch((err) => console.warn("[Storage] Background Redis seed/sync error:", err));
+}
+
+// 状态探针与 Redis 信息
+app.get(["/api/status", "/status"], async (_req: Request, res: Response) => {
+  const configured = isRedisConfigured();
+  let redisModelsCount = 0;
+  if (configured) {
+    try {
+      const data = await redisGet<{ models?: Record<string, any> }>(REDIS_MODELS_KEY);
+      redisModelsCount = Object.keys(data?.models ?? {}).length;
+    } catch {}
+  }
+  res.json({
+    ok: true,
+    redisConfigured: configured,
+    redisModelsCount,
+    memoryModelsCount: Object.keys(models).length,
+    vercel: process.env.VERCEL === "1",
+  });
+});
+
+// 手动一键灌入/初始化 Redis 数据库
+app.post(["/api/maintenance/seed-redis", "/maintenance/seed-redis"], async (_req: Request, res: Response) => {
+  if (!isRedisConfigured()) {
+    res.status(400).json({ error: "Redis not configured (missing URL or TOKEN)" });
+    return;
+  }
+  try {
+    const local = loadCatalogLocal();
+    await redisSet(REDIS_MODELS_KEY, local);
+    models = local.models;
+    const favs = await readFavorites();
+    await redisSet(REDIS_FAVORITES_KEY, favs);
+    res.json({ ok: true, seededModels: Object.keys(models).length });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// GET /api/models?platform=oc&model=deepseek-v4-pro
+// 过滤参数均可选：不带返回全部；platform 归一化（无法识别返回空）；model 匹配 key/name（忽略 -_. 与大小写）
+app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
+  if (isRedisConfigured()) {
+    try {
+      const fresh = await loadCatalog();
+      if (fresh.models && Object.keys(fresh.models).length > 0) {
+        models = fresh.models;
+      }
+    } catch {}
+  }
     const qPlatform = (req.query.platform as string | undefined) ?? "";
     const qModel = (req.query.model as string | undefined) ?? "";
 
@@ -465,7 +520,7 @@ async function startServer() {
 
   // GET /api/models/list — 每平台模型的 id+name 列表
   // 返回 {"opencode":[{id,name},...], "cmdc":[{id,name},...]}，id 为各平台真实调用 id
-  app.get("/api/models/list", (_req: Request, res: Response) => {
+  app.get(["/api/models/list", "/models/list"], (_req: Request, res: Response) => {
     const result: Record<string, Array<{ id: string; name: string }>> = {};
     for (const m of Object.values(models)) {
       const rec = m as {
@@ -488,7 +543,7 @@ async function startServer() {
   // - 价格换算为 USD/token（数据为 USD/1M tokens）；上下文分档映射为 input/output_cost_per_token_above_N_tokens
   // - supports_vision/function_calling/reasoning/prompt_caching 仅在为真时输出（与 LiteLLM 官方文件一致）
   // - 两个平台出现相同 id 时，条目 key 加 "<platform>/" 前缀消歧
-  app.get("/api/models/prices", (req: Request, res: Response) => {
+  app.get(["/api/models/prices", "/models/prices"], (req: Request, res: Response) => {
     const qPlatform = String(req.query.platform ?? "").trim().toLowerCase();
     const platformKey = qPlatform ? (PLATFORM_ALIASES[qPlatform] ?? null) : undefined;
     if (qPlatform && platformKey === null) {
@@ -523,14 +578,14 @@ async function startServer() {
 
   // ---- 模型维护 ----
   // GET /api/maintenance/local — 当前全量模型数据（写盘后与内存一致，维护页实时拉取）
-  app.get("/api/maintenance/local", (_req: Request, res: Response) => {
+  app.get(["/api/maintenance/local", "/maintenance/local"], (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({ total: Object.keys(models).length, models });
   });
 
   // GET /api/maintenance/live?platform=opencode|cmdc
   // 服务端代拉官方 /models（前端直连 CORS 失败时的兜底），返回 {id,name?,context_length?}[]
-  app.get("/api/maintenance/live", async (req: Request, res: Response) => {
+  app.get(["/api/maintenance/live", "/maintenance/live"], async (req: Request, res: Response) => {
     const platform = String(req.query.platform ?? "").toLowerCase();
     const target = platform === "cc" || platform === "cmdc" || platform === "commandcode" ? "cmdc" : platform === "oc" || platform === "opencode" ? "opencode" : "";
     if (!target) {
@@ -564,7 +619,7 @@ async function startServer() {
   // POST /api/maintenance/apply — 把 LLM 产出的模型参数 JSON 合并进 models.merged.json
   // body: {models:[{platform,key,id,name?,provider?,category?,context_size?,max_output?,pricing?,allowance?,discount?,notes?,protocols?,multimodal?,deprecated?}]}
   // 只写提供的字段；写前自动备份；成功后同步更新内存并返回 actions + updated 模型
-  app.post("/api/maintenance/apply", async (req: Request, res: Response) => {
+  app.post(["/api/maintenance/apply", "/maintenance/apply"], async (req: Request, res: Response) => {
     const docs = (req.body as { models?: unknown })?.models;
     const list: Array<Record<string, any>> = Array.isArray(docs) ? (docs as Array<Record<string, any>>) : [];
     if (list.length === 0 || list.length > 50) {
@@ -618,7 +673,7 @@ async function startServer() {
 
   // POST /api/maintenance/remove — 从配置中移除某模型的一个平台参数
   // body: {key, platform}；移除后若无平台则彻底删除该模型；写前自动备份
-  app.post("/api/maintenance/remove", async (req: Request, res: Response) => {
+  app.post(["/api/maintenance/remove", "/maintenance/remove"], async (req: Request, res: Response) => {
     const key = typeof (req.body as { key?: unknown })?.key === "string" ? String((req.body as { key?: string }).key).trim() : "";
     const rawPlatform = String((req.body as { platform?: unknown })?.platform ?? "").toLowerCase();
     const platform = rawPlatform === "opencode" ? "opencode" : rawPlatform === "cmdc" ? "cmdc" : "";
@@ -675,7 +730,7 @@ async function startServer() {
   //   - body 未出现的价格字段一律保持原值；显式传 null 表示清空该字段
   //   - 改 tier 0（含无 tiers 的根级）时同步写回根级主价格，维持 tiers[0] ≡ pricing 的不变量
   //   - 只触碰 pricing/allowance，不动 id、协议、多模态等字段；写前自动备份
-  app.post("/api/maintenance/pricing", async (req: Request, res: Response) => {
+  app.post(["/api/maintenance/pricing", "/maintenance/pricing"], async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const key = typeof body.key === "string" ? body.key.trim() : "";
     const rawPlatform = String(body.platform ?? "").toLowerCase();
@@ -796,7 +851,7 @@ async function startServer() {
   //   - contextWindow/maxTokens：模型级 context_size/max_output（平台独立值优先）
   //   - input：该平台侧 multimodal（如 [text]）
   //   - reasoningEfforts：{off,low,medium,high,xhigh,max}，有该档则映射自己、无则 null
-  app.get("/api/models/favorite", async (req: Request, res: Response) => {
+  app.get(["/api/models/favorite", "/models/favorite"], async (req: Request, res: Response) => {
     const qPlatform = String(req.query.platform ?? "").trim().toLowerCase();
     const platformKey = qPlatform ? (PLATFORM_ALIASES[qPlatform] ?? null) : undefined;
     if (qPlatform && platformKey === null) {
@@ -884,14 +939,14 @@ async function startServer() {
   });
 
   // GET /api/models/favorites — 后端持久化的原始收藏引用（前端同步/回填用）
-  app.get("/api/models/favorites", async (_req: Request, res: Response) => {
+  app.get(["/api/models/favorites", "/models/favorites"], async (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({ favorites: await readFavorites() });
   });
 
   // POST /api/models/favorites — 整体覆盖后端收藏并持久化
   // body: {favorites:[{platform,key}]}，返回落盘后的收藏
-  app.post("/api/models/favorites", async (req: Request, res: Response) => {
+  app.post(["/api/models/favorites", "/models/favorites"], async (req: Request, res: Response) => {
     const list = (req.body as { favorites?: unknown })?.favorites;
     if (!Array.isArray(list)) {
       res.status(400).json({ error: "body.favorites must be an array of {platform,key}" });
@@ -908,34 +963,29 @@ async function startServer() {
     }
   });
 
-  // Serve static files from dist/public in production
-  const staticPath =
-    process.env.NODE_ENV === "production"
-      ? path.resolve(__dirname, "public")
-      : path.resolve(__dirname, "..", "dist", "public");
-
-  app.use(express.static(staticPath));
-
-  // Handle client-side routing - serve index.html for all routes
-  app.get("*", (_req: Request, res: Response) => {
-    res.sendFile(path.join(staticPath, "index.html"));
-  });
-
-  const port = process.env.PORT || 3006;
-
   if (process.env.VERCEL !== "1") {
+    // Serve static files from dist/public in production
+    const staticPath =
+      process.env.NODE_ENV === "production"
+        ? path.resolve(__dirname, "public")
+        : path.resolve(__dirname, "..", "dist", "public");
+
+    app.use(express.static(staticPath));
+
+    // Handle client-side routing - serve index.html for all routes
+    app.get("*", (_req: Request, res: Response) => {
+      res.sendFile(path.join(staticPath, "index.html"));
+    });
+
+    const port = process.env.PORT || 3006;
+    const server = createServer(app);
     server.listen(port, () => {
       console.log(`Server running on http://localhost:${port}/`);
     });
   }
 
-  return app;
-}
-
-export const appPromise = startServer().catch((err) => {
-  console.error("Failed to start server:", err);
-  throw err;
-});
+export const appPromise = Promise.resolve(app);
+export default app;
 
 // 兜底：单个异常请求（如无法解码的 URL）不应拖垮整个服务
 process.on("uncaughtException", (err) => {
