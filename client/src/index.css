@@ -625,7 +625,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .maint-platform-badge--cmdc { border-color: rgba(128,185,170,.55); color: var(--mint); background: rgba(128,185,170,.07); }
 .maint-platform-badge--opencode { border-color: rgba(245,158,11,.55); color: var(--orange); background: rgba(245,158,11,.07); }
 .maint-column-title h2 { margin: 0; }
-.maint-column-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+.maint-column-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.maint-column-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .maint-column-head h2 { margin: 8px 0 4px; color: var(--paper); font-family: "Space Grotesk", "Noto Sans SC", sans-serif; font-size: 23px; font-weight: 600; letter-spacing: -.045em; }
 .maint-column-head small { color: #77766e; font-size: 12px; }
 .maint-list { display: grid; gap: 6px; }

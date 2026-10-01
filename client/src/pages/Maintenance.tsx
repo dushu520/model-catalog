@@ -394,7 +394,40 @@ export default function Maintenance() {
     }
   };
 
-  // 新增改为后台队列：立即入队返回，后台跑，可关弹窗/切页。
+  const [syncingPrices, setSyncingPrices] = useState<Record<PlatformKey, boolean>>({ opencode: false, cmdc: false });
+
+  const syncPrices = async (platform: PlatformKey) => {
+    if (platform !== "cmdc") {
+      toast.info("当前 OpenCode 官方暂无公开流式价格接口，可通过改价或对比更新");
+      return;
+    }
+    setSyncingPrices((prev) => ({ ...prev, [platform]: true }));
+    try {
+      const resp = await fetch("/api/maintenance/doc-models?platform=cmdc", { signal: AbortSignal.timeout(30000) });
+      if (!resp.ok) throw new Error(`获取官方价格失败 (${resp.status})`);
+      const body = (await resp.json()) as { models?: Array<Record<string, any>> };
+      const docModels = body.models ?? [];
+      if (docModels.length === 0) throw new Error("未获取到官方模型数据");
+
+      const applyResp = await fetch("/api/maintenance/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ models: docModels }),
+        signal: AbortSignal.timeout(45000),
+      });
+      const applyBody = (await applyResp.json()) as { ok?: boolean; error?: string; actions?: string[] };
+      if (!applyResp.ok || !applyBody.ok) throw new Error(applyBody.error ?? `更新失败: ${applyResp.status}`);
+
+      await reloadLocal(true);
+      toast.success(`已全量同步 ${docModels.length} 个模型的官方最新价格、阶梯分档与上下文限制！`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "价格同步失败");
+    } finally {
+      setSyncingPrices((prev) => ({ ...prev, [platform]: false }));
+    }
+  };
+
+  // 新增改为后台队列：直接提取官方精准价格秒级入库
   const addOne = (platform: PlatformKey, item: NewModel) => {
     submitEnrich(platform, [item]);
   };
@@ -515,9 +548,22 @@ export default function Maintenance() {
                     {liveAt[platform] && <small>官方 /models 拉取于 {liveAt[platform]}，共 {live[platform].length} 个</small>}
                   </div>
                 </div>
-                <button className="primary-button" type="button" onClick={() => refreshOne(platform)} disabled={refreshing[platform]}>
-                  {refreshing[platform] ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />} 更新模型
-                </button>
+                <div className="maint-column-actions">
+                  {platform === "cmdc" && (
+                    <button
+                      className="outline-button"
+                      type="button"
+                      title="从官方文档直接全量同步最新价格与分档"
+                      onClick={() => syncPrices(platform)}
+                      disabled={syncingPrices[platform]}
+                    >
+                      {syncingPrices[platform] ? <Loader2 size={14} className="spin" /> : <Tag size={14} />} 全量同步价格
+                    </button>
+                  )}
+                  <button className="primary-button" type="button" onClick={() => refreshOne(platform)} disabled={refreshing[platform]}>
+                    {refreshing[platform] ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />} 更新模型
+                  </button>
+                </div>
               </div>
               <ColumnList
                 title={platform}

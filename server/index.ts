@@ -802,14 +802,14 @@ app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
     }
   });
 
-  // POST /api/maintenance/apply — 把 LLM 产出的模型参数 JSON 合并进 models.merged.json
+  // POST /api/maintenance/apply — 把模型参数 JSON 合并进 models.merged.json
   // body: {models:[{platform,key,id,name?,provider?,category?,context_size?,max_output?,pricing?,allowance?,discount?,notes?,protocols?,multimodal?,deprecated?}]}
   // 只写提供的字段；写前自动备份；成功后同步更新内存并返回 actions + updated 模型
   app.post(["/api/maintenance/apply", "/maintenance/apply"], async (req: Request, res: Response) => {
     const docs = (req.body as { models?: unknown })?.models;
     const list: Array<Record<string, any>> = Array.isArray(docs) ? (docs as Array<Record<string, any>>) : [];
-    if (list.length === 0 || list.length > 50) {
-      res.status(400).json({ error: "body.models must be a non-empty array (<=50)" });
+    if (list.length === 0 || list.length > 500) {
+      res.status(400).json({ error: "body.models must be a non-empty array (<=500)" });
       return;
     }
     try {

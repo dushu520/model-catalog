@@ -195,34 +195,65 @@ async function applyModels(records: unknown[]): Promise<MergedModel[]> {
   return (body.updated ?? []).map((u) => u.model);
 }
 
-// 单个模型：针对 CommandCode 优先从服务端直接抓取官方 Next.js RSC 精准价格，避免 LLM 遗漏与未设置
+// 规范化字符串用于对齐匹配（忽略大小写和所有非字母数字字符）
+function normString(str: string): string {
+  return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// 缓存已拉取的官方文档模型列表，避免每添加一个模型都重复拉取
+let cachedDocModels: Array<Record<string, any>> | null = null;
+let lastDocModelsFetch = 0;
+
+export async function getCmdcDocModels(force = false): Promise<Array<Record<string, any>>> {
+  const now = Date.now();
+  if (!force && cachedDocModels && now - lastDocModelsFetch < 60000) {
+    return cachedDocModels;
+  }
+  const resp = await fetch("/api/maintenance/doc-models?platform=cmdc", {
+    signal: AbortSignal.timeout(25000),
+  });
+  if (!resp.ok) throw new Error(`拉取官方价格失败: ${resp.status}`);
+  const body = (await resp.json()) as { models?: Array<Record<string, any>> };
+  cachedDocModels = body.models ?? [];
+  lastDocModelsFetch = now;
+  return cachedDocModels;
+}
+
+// 单个模型：直接插入模型并秒级绑定官方精准参数（不需要任何 LLM 等待）
 async function runItem(item: QueueItem, ccKey: string): Promise<MergedModel[]> {
   let records: unknown[] | null = null;
 
-  // 1. CommandCode 平台：优先调用官方文档底层流式接口提取 100% 精确参数
+  // 1. CommandCode 平台：直接从官方 Next.js RSC 流数据中匹配
   if (item.platform === "cmdc") {
     try {
-      const resp = await fetch("/api/maintenance/doc-models?platform=cmdc", {
-        signal: AbortSignal.timeout(25000),
-      });
-      if (resp.ok) {
-        const body = (await resp.json()) as { models?: Array<Record<string, any>> };
-        const found = (body.models ?? []).find(
-          (m) =>
-            m.id === item.model.id ||
-            m.key === deriveCanonicalKey(item.model.id) ||
-            m.id?.toLowerCase() === item.model.id.toLowerCase()
+      const docModels = await getCmdcDocModels();
+      const targetNorm = normString(item.model.id);
+      const targetBareNorm = normString(deriveCanonicalKey(item.model.id));
+      const targetNameNorm = normString(item.model.name ?? "");
+
+      const found = docModels.find((m) => {
+        const idNorm = normString(m.id);
+        const keyNorm = normString(m.key);
+        const nameNorm = normString(m.name);
+        return (
+          idNorm === targetNorm ||
+          keyNorm === targetBareNorm ||
+          idNorm.endsWith(targetBareNorm) ||
+          targetNorm.endsWith(idNorm) ||
+          (targetNameNorm && nameNorm === targetNameNorm)
         );
-        if (found) {
-          records = [found];
-        }
+      });
+
+      if (found) {
+        // 使用官方真实参数，并保留用户传入的调用 id
+        records = [{ ...found, id: item.model.id }];
       }
     } catch (e) {
-      console.warn(`[enrich-queue] 直取官方文档数据失败，尝试备用机制:`, e);
+      console.warn(`[enrich-queue] 官方文档数据匹配失败:`, e);
     }
   }
 
-  // 2. 若未从官方文档接口直接匹配到（或属于 OpenCode 平台），且有 API Key，走 LLM 智能提取
+  // 2. 若未匹配到且提供了 LLM Key（如 OpenCode 特殊模型），尝试 LLM 智能提取
   if (!records && ccKey) {
     try {
       const resp = await fetch(ENRICH_ENDPOINT, {
@@ -245,11 +276,11 @@ async function runItem(item: QueueItem, ccKey: string): Promise<MergedModel[]> {
         }
       }
     } catch (e) {
-      console.warn(`[enrich-queue] LLM 提取模型 ${item.model.id} 参数失败，降级为保底模板:`, e);
+      console.warn(`[enrich-queue] LLM 提取模型 ${item.model.id} 参数失败:`, e);
     }
   }
 
-  // 3. 若均未提取成功，使用基础兜底结构保证添加成功（后续可随时重配价格）
+  // 3. 直接使用基础结构秒级插入（零等待）
   if (!records || records.length === 0) {
     records = [buildFallbackRecord(item.platform, item.model)];
   }
