@@ -281,7 +281,12 @@ async function loadCatalog(): Promise<{ meta: Record<string, any>; models: Recor
   const local = loadCatalogLocal();
   // 如果配置了 Redis 且 Redis 还是空的，自动将本地初始数据填充进 Redis
   if (isRedisConfigured && local.models && Object.keys(local.models).length > 0) {
-    void redisSet(REDIS_MODELS_KEY, local);
+    try {
+      await redisSet(REDIS_MODELS_KEY, local);
+      console.log(`[Storage] Initialized Upstash Redis with ${Object.keys(local.models).length} models`);
+    } catch (e) {
+      console.error("[Storage] Failed to seed Redis:", e);
+    }
   }
   return local;
 }
