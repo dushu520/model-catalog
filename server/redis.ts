@@ -10,15 +10,16 @@ export function getRedisUrl(): string | undefined {
   const directNames = [
     "UPSTASH_REDIS_REST_URL",
     "KV_REST_API_URL",
-    "REDIS_URL",
-    "KV_URL",
   ];
   for (const name of directNames) {
-    if (process.env[name]) return process.env[name];
+    const val = process.env[name];
+    if (val && (val.startsWith("https://") || val.startsWith("http://"))) {
+      return val;
+    }
   }
-  // 扫描所有匹配的 REST_URL / REST_API_URL
+  // 扫描所有匹配的 REST_URL / REST_API_URL（必须是 http 或 https 开头）
   for (const [k, v] of Object.entries(process.env)) {
-    if (v && (k.endsWith("_REST_URL") || k.endsWith("_REST_API_URL") || k.endsWith("_URL"))) {
+    if (v && (k.endsWith("_REST_URL") || k.endsWith("_REST_API_URL"))) {
       if (v.startsWith("http://") || v.startsWith("https://")) {
         return v;
       }
@@ -31,14 +32,13 @@ export function getRedisToken(): string | undefined {
   const directNames = [
     "UPSTASH_REDIS_REST_TOKEN",
     "KV_REST_API_TOKEN",
-    "REDIS_TOKEN",
   ];
   for (const name of directNames) {
     if (process.env[name]) return process.env[name];
   }
   // 扫描所有匹配的 REST_TOKEN / REST_API_TOKEN（排除只读 token）
   for (const [k, v] of Object.entries(process.env)) {
-    if (v && !k.includes("READ_ONLY") && (k.endsWith("_REST_TOKEN") || k.endsWith("_REST_API_TOKEN") || k.endsWith("_TOKEN"))) {
+    if (v && !k.includes("READ_ONLY") && (k.endsWith("_REST_TOKEN") || k.endsWith("_REST_API_TOKEN"))) {
       return v;
     }
   }
@@ -80,7 +80,7 @@ export async function redisGet<T = any>(key: string): Promise<T | null> {
     return body.result as T;
   } catch (err) {
     console.error(`[Redis] GET ${key} error:`, err);
-    return null;
+    throw err;
   }
 }
 
@@ -103,13 +103,13 @@ export async function redisSet(key: string, value: any): Promise<boolean> {
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
       console.error(`[Redis] SET ${key} failed (${resp.status}): ${errText}`);
-      return false;
+      throw new Error(`Upstash SET failed (${resp.status}): ${errText}`);
     }
     const result = await resp.json().catch(() => ({}));
     console.log(`[Redis] SET ${key} success:`, result);
     return true;
   } catch (err) {
     console.error(`[Redis] SET ${key} error:`, err);
-    return false;
+    throw err;
   }
 }

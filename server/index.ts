@@ -242,7 +242,7 @@ function litellmEntry(model: Record<string, any>, platformRec: Record<string, an
   return entry;
 }
 
-import { isRedisConfigured, redisGet, redisSet } from "./redis";
+import { isRedisConfigured, redisGet, redisSet, getRedisUrl, getRedisToken } from "./redis";
 
 const REDIS_MODELS_KEY = "model-catalog:models.merged:v1";
 const REDIS_FAVORITES_KEY = "model-catalog:models.favorite:v1";
@@ -413,33 +413,73 @@ app.use(express.json({ limit: "2mb" }));
 let catalogData = loadCatalogLocal();
 let models = (catalogData.models ?? {}) as Record<string, Record<string, any>>;
 
-// 启动时在后台尝试同步 Redis 数据
-if (isRedisConfigured()) {
-  loadCatalog()
-    .then((fresh) => {
+// 保证在 Serverless 环境下，请求处理之前完成 Redis 初始化与同步（避免后台异步被 Lambda 冻结）
+let initPromise: Promise<void> | null = null;
+async function ensureCatalogLoaded(): Promise<void> {
+  if (isRedisConfigured()) {
+    try {
+      const fresh = await loadCatalog();
       if (fresh && fresh.models && Object.keys(fresh.models).length > 0) {
         models = fresh.models;
-        console.log(`[Storage] Synced ${Object.keys(models).length} models into memory from Upstash Redis`);
+        console.log(`[Storage] Ensured ${Object.keys(models).length} models loaded in memory/Redis`);
       }
-    })
-    .catch((err) => console.warn("[Storage] Background Redis seed/sync error:", err));
+    } catch (e) {
+      console.warn("[Storage] ensureCatalogLoaded failed:", e);
+    }
+  }
 }
 
-// 状态探针与 Redis 信息
+app.use(async (_req: Request, _res: Response, next: any) => {
+  if (!initPromise) {
+    initPromise = ensureCatalogLoaded();
+  }
+  try {
+    await initPromise;
+  } catch {}
+  next();
+});
+
+// 状态探针与 Redis 信息（提供详细环境诊断）
 app.get(["/api/status", "/status"], async (_req: Request, res: Response) => {
-  const configured = isRedisConfigured();
+  const url = getRedisUrl();
+  const token = getRedisToken();
+  const configured = Boolean(url && token);
   let redisModelsCount = 0;
+  let redisError: string | null = null;
   if (configured) {
     try {
       const data = await redisGet<{ models?: Record<string, any> }>(REDIS_MODELS_KEY);
       redisModelsCount = Object.keys(data?.models ?? {}).length;
-    } catch {}
+      if (redisModelsCount === 0) {
+        // 如果 Redis 还是空的，就地触发一次填充
+        const seeded = await loadCatalog();
+        redisModelsCount = Object.keys(seeded.models ?? {}).length;
+      }
+    } catch (e) {
+      redisError = e instanceof Error ? e.message : String(e);
+    }
   }
+
+  // 收集环境变量名（安全：仅展示 key 名，绝不泄露 token 值）
+  const relevantEnvKeys = Object.keys(process.env).filter(
+    (k) => k.includes("REDIS") || k.includes("KV") || k.includes("REST")
+  );
+
+  let urlHost: string | null = null;
+  try {
+    if (url) urlHost = new URL(url).host;
+  } catch {}
+
   res.json({
     ok: true,
     redisConfigured: configured,
+    hasUrl: Boolean(url),
+    hasToken: Boolean(token),
+    urlHost,
     redisModelsCount,
+    redisError,
     memoryModelsCount: Object.keys(models).length,
+    relevantEnvKeys,
     vercel: process.env.VERCEL === "1",
   });
 });
@@ -578,9 +618,16 @@ app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
     res.json(result);
   });
 
-  // ---- 模型维护 ----
   // GET /api/maintenance/local — 当前全量模型数据（写盘后与内存一致，维护页实时拉取）
-  app.get(["/api/maintenance/local", "/maintenance/local"], (_req: Request, res: Response) => {
+  app.get(["/api/maintenance/local", "/maintenance/local"], async (_req: Request, res: Response) => {
+    if (isRedisConfigured()) {
+      try {
+        const fresh = await loadCatalog();
+        if (fresh.models && Object.keys(fresh.models).length > 0) {
+          models = fresh.models;
+        }
+      } catch {}
+    }
     res.setHeader("Cache-Control", "no-store");
     res.json({ total: Object.keys(models).length, models });
   });
