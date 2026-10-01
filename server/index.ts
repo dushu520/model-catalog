@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type Request, type Response } from "express";
 import { createServer } from "http";
 import fs from "fs";
 import path from "path";
@@ -400,7 +400,7 @@ async function startServer() {
 
   // GET /api/models?platform=oc&model=deepseek-v4-pro
   // 过滤参数均可选：不带返回全部；platform 归一化（无法识别返回空）；model 匹配 key/name（忽略 -_. 与大小写）
-  app.get("/api/models", (req, res) => {
+  app.get("/api/models", (req: Request, res: Response) => {
     const qPlatform = (req.query.platform as string | undefined) ?? "";
     const qModel = (req.query.model as string | undefined) ?? "";
 
@@ -450,7 +450,7 @@ async function startServer() {
 
   // GET /api/models/list — 每平台模型的 id+name 列表
   // 返回 {"opencode":[{id,name},...], "cmdc":[{id,name},...]}，id 为各平台真实调用 id
-  app.get("/api/models/list", (_req, res) => {
+  app.get("/api/models/list", (_req: Request, res: Response) => {
     const result: Record<string, Array<{ id: string; name: string }>> = {};
     for (const m of Object.values(models)) {
       const rec = m as {
@@ -473,7 +473,7 @@ async function startServer() {
   // - 价格换算为 USD/token（数据为 USD/1M tokens）；上下文分档映射为 input/output_cost_per_token_above_N_tokens
   // - supports_vision/function_calling/reasoning/prompt_caching 仅在为真时输出（与 LiteLLM 官方文件一致）
   // - 两个平台出现相同 id 时，条目 key 加 "<platform>/" 前缀消歧
-  app.get("/api/models/prices", (req, res) => {
+  app.get("/api/models/prices", (req: Request, res: Response) => {
     const qPlatform = String(req.query.platform ?? "").trim().toLowerCase();
     const platformKey = qPlatform ? (PLATFORM_ALIASES[qPlatform] ?? null) : undefined;
     if (qPlatform && platformKey === null) {
@@ -508,14 +508,14 @@ async function startServer() {
 
   // ---- 模型维护 ----
   // GET /api/maintenance/local — 当前全量模型数据（写盘后与内存一致，维护页实时拉取）
-  app.get("/api/maintenance/local", (_req, res) => {
+  app.get("/api/maintenance/local", (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({ total: Object.keys(models).length, models });
   });
 
   // GET /api/maintenance/live?platform=opencode|cmdc
   // 服务端代拉官方 /models（前端直连 CORS 失败时的兜底），返回 {id,name?,context_length?}[]
-  app.get("/api/maintenance/live", async (req, res) => {
+  app.get("/api/maintenance/live", async (req: Request, res: Response) => {
     const platform = String(req.query.platform ?? "").toLowerCase();
     const target = platform === "cc" || platform === "cmdc" || platform === "commandcode" ? "cmdc" : platform === "oc" || platform === "opencode" ? "opencode" : "";
     if (!target) {
@@ -549,7 +549,7 @@ async function startServer() {
   // POST /api/maintenance/apply — 把 LLM 产出的模型参数 JSON 合并进 models.merged.json
   // body: {models:[{platform,key,id,name?,provider?,category?,context_size?,max_output?,pricing?,allowance?,discount?,notes?,protocols?,multimodal?,deprecated?}]}
   // 只写提供的字段；写前自动备份；成功后同步更新内存并返回 actions + updated 模型
-  app.post("/api/maintenance/apply", async (req, res) => {
+  app.post("/api/maintenance/apply", async (req: Request, res: Response) => {
     const docs = (req.body as { models?: unknown })?.models;
     const list: Array<Record<string, any>> = Array.isArray(docs) ? (docs as Array<Record<string, any>>) : [];
     if (list.length === 0 || list.length > 50) {
@@ -599,7 +599,7 @@ async function startServer() {
 
   // POST /api/maintenance/remove — 从配置中移除某模型的一个平台参数
   // body: {key, platform}；移除后若无平台则彻底删除该模型；写前自动备份
-  app.post("/api/maintenance/remove", async (req, res) => {
+  app.post("/api/maintenance/remove", async (req: Request, res: Response) => {
     const key = typeof (req.body as { key?: unknown })?.key === "string" ? String((req.body as { key?: string }).key).trim() : "";
     const rawPlatform = String((req.body as { platform?: unknown })?.platform ?? "").toLowerCase();
     const platform = rawPlatform === "opencode" ? "opencode" : rawPlatform === "cmdc" ? "cmdc" : "";
@@ -652,7 +652,7 @@ async function startServer() {
   //   - body 未出现的价格字段一律保持原值；显式传 null 表示清空该字段
   //   - 改 tier 0（含无 tiers 的根级）时同步写回根级主价格，维持 tiers[0] ≡ pricing 的不变量
   //   - 只触碰 pricing/allowance，不动 id、协议、多模态等字段；写前自动备份
-  app.post("/api/maintenance/pricing", async (req, res) => {
+  app.post("/api/maintenance/pricing", async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const key = typeof body.key === "string" ? body.key.trim() : "";
     const rawPlatform = String(body.platform ?? "").toLowerCase();
@@ -769,7 +769,7 @@ async function startServer() {
   //   - contextWindow/maxTokens：模型级 context_size/max_output（平台独立值优先）
   //   - input：该平台侧 multimodal（如 [text]）
   //   - reasoningEfforts：{off,low,medium,high,xhigh,max}，有该档则映射自己、无则 null
-  app.get("/api/models/favorite", async (req, res) => {
+  app.get("/api/models/favorite", async (req: Request, res: Response) => {
     const qPlatform = String(req.query.platform ?? "").trim().toLowerCase();
     const platformKey = qPlatform ? (PLATFORM_ALIASES[qPlatform] ?? null) : undefined;
     if (qPlatform && platformKey === null) {
@@ -857,14 +857,14 @@ async function startServer() {
   });
 
   // GET /api/models/favorites — 后端持久化的原始收藏引用（前端同步/回填用）
-  app.get("/api/models/favorites", async (_req, res) => {
+  app.get("/api/models/favorites", async (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({ favorites: await readFavorites() });
   });
 
   // POST /api/models/favorites — 整体覆盖后端收藏并持久化
   // body: {favorites:[{platform,key}]}，返回落盘后的收藏
-  app.post("/api/models/favorites", async (req, res) => {
+  app.post("/api/models/favorites", async (req: Request, res: Response) => {
     const list = (req.body as { favorites?: unknown })?.favorites;
     if (!Array.isArray(list)) {
       res.status(400).json({ error: "body.favorites must be an array of {platform,key}" });
@@ -890,7 +890,7 @@ async function startServer() {
   app.use(express.static(staticPath));
 
   // Handle client-side routing - serve index.html for all routes
-  app.get("*", (_req, res) => {
+  app.get("*", (_req: Request, res: Response) => {
     res.sendFile(path.join(staticPath, "index.html"));
   });
 
