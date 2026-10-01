@@ -60,57 +60,26 @@ compare 输出三类：
 - **missing**：本地有、API 没有 → 疑似下线，**人工复核后再决定删不删**（不要自动删）
 - **kept**：两边一致
 
-### 3) 让 LLM 从官方页面提取新增模型参数（关键步骤，不要自己解析页面）
+### 3) 获取新增模型参数与价格数据
 
-对 compare 报告里每个 `added` 模型，向 LLM 提供官方页面内容并索取结构化 JSON。
-做法（任选其一，推荐按顺序）：
-1. 用 firecrawl 抓取官方页 markdown 给 LLM 读（已实测 OC 页 markdown 数据完整）：
-   ```bash
-   curl -sS -X POST https://api.firecrawl.dev/v2/scrape \
-     -H 'Authorization: Bearer fc-...' -H 'Content-Type: application/json' \
-     -d '{"url":"<官方页 URL>","formats":["markdown"],"onlyMainContent":true}'
-   ```
-2. 或直接把两个官方文档 URL 交给 LLM，让它访问并阅读（LLM 自己有联网抓取能力时）。
-3. CC 页面正文不含 per-plan 美元额度（如 MiniMax M3 Pro $57）：LLM 拿不到就**省略该字段**，
-   apply 时会沿用旧值或留空，不要编造。
+- **CommandCode 平台（全自动直接提取）**：
+  官方页面底层 Next.js 包含完整 JSON 数据流（包含分档阶梯、时段峰谷、上下文长度、额度等），直接运行提取脚本：
+  ```bash
+  python3 .agents/skills/model-catalog-sync/scripts/fetch_doc_data.py --platform cmdc
+  ```
+  输出至 `.sync-tmp/doc_models_cmdc.json`。
 
-LLM 必须严格按下面的 schema 输出 JSON 数组（每个记录 = 一个平台侧），字段缺省即"官方页面未提供"：
-
-```json
-[
-  {
-    "platform": "cmdc",
-    "key": "gemini-3.8-flash",
-    "id": "google/gemini-3.8-flash",
-    "name": "Gemini 3.8 Flash",
-    "provider": "Google",
-    "category": "opensource",
-    "context_size": 1000000,
-    "pricing": {
-      "input": 1.5, "output": 7.5, "cache_read": 0.15,
-      "cache_write": null,
-      "tiers": [ { "label": null, "context": null, "input": 1.5, "output": 7.5, "cache_read": 0.15, "cache_write": null } ]
-    },
-    "allowance": { "monthly_usd": 50, "plan_allowance": { "goat": 40, "pro": 50 } },
-    "notes": "Available on GOAT and above."
-  }
-]
-```
-
-要求 LLM：
-- `id` **必须等于** fetch_api_lists 输出（api_lists.json）里的 id；`key` = id 去厂商前缀后的规范小写横线形
-  （如 `google/gemini-3.8-flash` → key `gemini-3.8-flash`）。
-- 若某模型同时在两平台新增，则给两条记录（同 key、不同 platform）。
-- 价格单位一律 USD / 每 1M token；有分档(tier/峰谷)就放 `pricing.tiers`。
-- 无把握的字段宁可省略，**不要编**。
-
-把 LLM 输出保存为 `.sync-tmp/llm_new_models.json`。
+- **OpenCode 平台（或 LLM 提取）**：
+  若需更新 OpenCode 新模型，向 LLM 提供文档内容并索取标准 JSON 数组，保存至 `.sync-tmp/llm_new_models.json`。
 
 ### 4) 合并进数据文件
 
 ```bash
-python3 .agents/skills/model-catalog-sync/scripts/apply_json.py .sync-tmp/llm_new_models.json            # dry run
-python3 .agents/skills/model-catalog-sync/scripts/apply_json.py .sync-tmp/llm_new_models.json --write    # 备份后写入
+# 合并 CommandCode 官网精准数据
+python3 .agents/skills/model-catalog-sync/scripts/apply_json.py .sync-tmp/doc_models_cmdc.json --write
+
+# 如有 LLM 提取的模型数据同样合并
+# python3 .agents/skills/model-catalog-sync/scripts/apply_json.py .sync-tmp/llm_new_models.json --write
 ```
 
 ### 5) 校验 + 报告
