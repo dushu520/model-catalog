@@ -128,6 +128,8 @@ export async function fetchCmdcDocModelsDirect(): Promise<Array<Record<string, a
     const multimodal = ["text"];
     if (m.vision || caps.vision) multimodal.push("image");
 
+    const isReasoning = typeof m.reasoning === "boolean" ? m.reasoning : (caps.reasoning === true);
+
     const monthlyCredits = m.minPlanName === "GOAT" ? 70.0 : 60.0;
     const allowance = {
       monthly_usd: monthlyCredits,
@@ -152,6 +154,9 @@ export async function fetchCmdcDocModelsDirect(): Promise<Array<Record<string, a
       provider: m.vendor,
       category: m.category || "opensource",
       context_size: m.contextWindow ?? null,
+      reasoning: isReasoning,
+      intelligence_index: typeof m.intelligenceIndex === "number" ? m.intelligenceIndex : null,
+      coding_index: typeof m.codingIndex === "number" ? m.codingIndex : null,
       multimodal,
       pricing,
       allowance,
@@ -208,6 +213,9 @@ function newMergedModel(doc: Record<string, any>, platform: string): Record<stri
   };
   if (doc.context_size) root.context_size = doc.context_size;
   if (doc.max_output) root.max_output = doc.max_output;
+  if (typeof doc.reasoning === "boolean") root.reasoning = doc.reasoning;
+  if (typeof doc.intelligence_index === "number") root.intelligence_index = doc.intelligence_index;
+  if (typeof doc.coding_index === "number") root.coding_index = doc.coding_index;
   return {
     ...root,
     platforms: { [platform]: record },
@@ -249,6 +257,9 @@ function mergeIntoModel(model: Record<string, any>, doc: Record<string, any>, pl
   }
   if (doc.context_size && !next.context_size) next.context_size = doc.context_size;
   if (doc.max_output && !next.max_output) next.max_output = doc.max_output;
+  if (typeof doc.reasoning === "boolean" && next.reasoning === undefined) next.reasoning = doc.reasoning;
+  if (typeof doc.intelligence_index === "number" && next.intelligence_index === undefined) next.intelligence_index = doc.intelligence_index;
+  if (typeof doc.coding_index === "number" && next.coding_index === undefined) next.coding_index = doc.coding_index;
   return next;
 }
 
