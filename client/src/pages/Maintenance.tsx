@@ -245,16 +245,18 @@ function ColumnList({
               {hiddenView ? <Eye size={14} /> : <EyeOff size={14} />}
               {hiddenView ? "恢复" : "隐藏"}
             </button>
-            <button
-              className="maint-del"
-              type="button"
-              title={`从 ${short} 移除该模型`}
-              disabled={removingKey === `${model.key}-${title}`}
-              onClick={() => onDelete(model, title as PlatformKey)}
-            >
-              {removingKey === `${model.key}-${title}` ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
-              删除
-            </button>
+            {hiddenView && (
+              <button
+                className="maint-del"
+                type="button"
+                title={`从 ${short} 彻底删除该模型`}
+                disabled={removingKey === `${model.key}-${title}`}
+                onClick={() => onDelete(model, title as PlatformKey)}
+              >
+                {removingKey === `${model.key}-${title}` ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
+                删除
+              </button>
+            )}
           </span>
         </div>
       ))}
@@ -509,6 +511,9 @@ export default function Maintenance() {
       if (!resp.ok || !body.ok) throw new Error(body.error ?? `删除失败: ${resp.status}`);
 
       await reloadLocal(true);
+      if (body.deleted) {
+        setHiddenKeys(unhideModelKey(model.key));
+      }
       toast.success(body.deleted ? `已从目录彻底删除 ${model.name}` : `已从 ${PLATFORM_META[platform].label} 移除 ${model.name}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "删除失败");
