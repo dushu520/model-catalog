@@ -748,6 +748,39 @@ app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
     res.json(result);
   });
 
+  // ---- 维护认证校验（环境变量 MAINTENANCE_PASSWORD 或 ADMIN_PASSWORD）----
+  function checkMaintenanceAuth(req: Request): boolean {
+    const configuredPass = (process.env.MAINTENANCE_PASSWORD || process.env.ADMIN_PASSWORD || readServerKeys().MAINTENANCE_PASSWORD || readServerKeys().ADMIN_PASSWORD || "").trim();
+    // 若服务端未配置任何密码，则无需认证（向后兼容）
+    if (!configuredPass) return true;
+
+    const authHeader = String(req.headers["x-maintenance-password"] ?? req.headers["authorization"] ?? "").trim();
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader;
+    return token === configuredPass;
+  }
+
+  // GET /api/maintenance/auth-status — 查询当前是否开启了密码认证
+  app.get(["/api/maintenance/auth-status", "/maintenance/auth-status"], (_req: Request, res: Response) => {
+    const configuredPass = (process.env.MAINTENANCE_PASSWORD || process.env.ADMIN_PASSWORD || readServerKeys().MAINTENANCE_PASSWORD || readServerKeys().ADMIN_PASSWORD || "").trim();
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ required: !!configuredPass });
+  });
+
+  // POST /api/maintenance/verify — 校验密码是否正确
+  app.post(["/api/maintenance/verify", "/maintenance/verify"], (req: Request, res: Response) => {
+    const configuredPass = (process.env.MAINTENANCE_PASSWORD || process.env.ADMIN_PASSWORD || readServerKeys().MAINTENANCE_PASSWORD || readServerKeys().ADMIN_PASSWORD || "").trim();
+    if (!configuredPass) {
+      res.json({ ok: true, required: false });
+      return;
+    }
+    const inputPass = String((req.body as { password?: unknown })?.password ?? "").trim();
+    if (inputPass === configuredPass) {
+      res.json({ ok: true, required: true });
+    } else {
+      res.status(401).json({ ok: false, error: "密码错误，请重新输入" });
+    }
+  });
+
   // GET /api/maintenance/local — 当前全量模型数据（写盘后与内存一致，维护页实时拉取）
   app.get(["/api/maintenance/local", "/maintenance/local"], async (_req: Request, res: Response) => {
     if (isRedisConfigured()) {
@@ -817,6 +850,10 @@ app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
   // body: {models:[{platform,key,id,name?,provider?,category?,context_size?,max_output?,pricing?,allowance?,discount?,notes?,protocols?,multimodal?,deprecated?}]}
   // 只写提供的字段；写前自动备份；成功后同步更新内存并返回 actions + updated 模型
   app.post(["/api/maintenance/apply", "/maintenance/apply"], async (req: Request, res: Response) => {
+    if (!checkMaintenanceAuth(req)) {
+      res.status(401).json({ error: "未授权：维护密码错误或未提供" });
+      return;
+    }
     const docs = (req.body as { models?: unknown })?.models;
     const list: Array<Record<string, any>> = Array.isArray(docs) ? (docs as Array<Record<string, any>>) : [];
     if (list.length === 0 || list.length > 500) {
@@ -871,6 +908,10 @@ app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
   // POST /api/maintenance/remove — 从配置中移除某模型的一个平台参数
   // body: {key, platform}；移除后若无平台则彻底删除该模型；写前自动备份
   app.post(["/api/maintenance/remove", "/maintenance/remove"], async (req: Request, res: Response) => {
+    if (!checkMaintenanceAuth(req)) {
+      res.status(401).json({ error: "未授权：维护密码错误或未提供" });
+      return;
+    }
     const key = typeof (req.body as { key?: unknown })?.key === "string" ? String((req.body as { key?: string }).key).trim() : "";
     const rawPlatform = String((req.body as { platform?: unknown })?.platform ?? "").toLowerCase();
     const platform = rawPlatform === "opencode" ? "opencode" : rawPlatform === "cmdc" ? "cmdc" : "";
@@ -928,6 +969,10 @@ app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
   //   - 改 tier 0（含无 tiers 的根级）时同步写回根级主价格，维持 tiers[0] ≡ pricing 的不变量
   //   - 只触碰 pricing/allowance，不动 id、协议、多模态等字段；写前自动备份
   app.post(["/api/maintenance/pricing", "/maintenance/pricing"], async (req: Request, res: Response) => {
+    if (!checkMaintenanceAuth(req)) {
+      res.status(401).json({ error: "未授权：维护密码错误或未提供" });
+      return;
+    }
     const body = (req.body ?? {}) as Record<string, unknown>;
     const key = typeof body.key === "string" ? body.key.trim() : "";
     const rawPlatform = String(body.platform ?? "").toLowerCase();

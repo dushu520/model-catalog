@@ -1,7 +1,5 @@
-/* Editorial Atlas reminder: maintenance is a workbench—two platform columns scan side by side, new models stay inspectable before landing. */
-
 import { useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, Heart, Loader2, Plus, RefreshCw, RotateCw, Search, Settings2, Tag, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, Heart, KeyRound, Loader2, Lock, Plus, RefreshCw, RotateCw, Search, Settings2, ShieldCheck, Tag, Trash2, X } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import ApiKeyDialog, { loadApiKeys } from "@/components/ApiKeyDialog";
@@ -18,6 +16,7 @@ import {
 } from "@/lib/enrich-queue";
 import { isFavorite, loadFavorites, toggleFavorite, type FavoriteRef } from "@/lib/favorites";
 import { hideModelKey, loadHiddenKeys, persistHiddenKeys, unhideModelKey } from "@/lib/hidden-models";
+import { loadMaintenanceToken, persistMaintenanceToken, getMaintenanceHeaders } from "@/lib/maint-auth";
 import { CatalogData, MergedModel, PlatformKey, PLATFORM_META } from "@/lib/model-catalog";
 import { useCatalog } from "@/contexts/CatalogContext";
 
@@ -265,6 +264,12 @@ function ColumnList({
 }
 
 export default function Maintenance() {
+  const [authRequired, setAuthRequired] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authError, setAuthError] = useState("");
+
   const [hiddenKeys, setHiddenKeys] = useState<string[]>(() => loadHiddenKeys());
   const [showHidden, setShowHidden] = useState(false);
   const [platformFilter, setPlatformFilter] = useState<PlatformKey | "all">("cmdc");
@@ -283,6 +288,69 @@ export default function Maintenance() {
   const [testPlatform, setTestPlatform] = useState<PlatformKey | null>(null);
   const [priceEdit, setPriceEdit] = useState<{ model: MergedModel; platform: PlatformKey } | null>(null);
   const [favorites, setFavorites] = useState<FavoriteRef[]>(() => loadFavorites());
+
+  // 检查服务端是否启用了维护密码
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const resp = await fetch("/api/maintenance/auth-status", { signal: AbortSignal.timeout(10000) });
+        if (resp.ok) {
+          const data = (await resp.json()) as { required?: boolean };
+          if (data.required) {
+            setAuthRequired(true);
+            const savedToken = loadMaintenanceToken();
+            if (savedToken) {
+              const verifyResp = await fetch("/api/maintenance/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: savedToken }),
+                signal: AbortSignal.timeout(10000),
+              });
+              if (verifyResp.ok) {
+                setIsAuthenticated(true);
+              } else {
+                setIsAuthenticated(false);
+              }
+            } else {
+              setIsAuthenticated(false);
+            }
+          } else {
+            setAuthRequired(false);
+            setIsAuthenticated(true);
+          }
+        }
+      } catch {
+        // 网络异常默认放行前端视图（后端操作仍有鉴权兜底）
+      } finally {
+        setAuthChecking(false);
+      }
+    }
+    void checkAuth();
+  }, []);
+
+  const handleVerify = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!passwordInput.trim()) return;
+    setAuthError("");
+    try {
+      const resp = await fetch("/api/maintenance/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passwordInput.trim() }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = (await resp.json()) as { ok?: boolean; error?: string };
+      if (resp.ok && data.ok) {
+        persistMaintenanceToken(passwordInput.trim());
+        setIsAuthenticated(true);
+        toast.success("认证成功，已解锁模型维护管理权限");
+      } else {
+        setAuthError(data.error || "密码错误");
+      }
+    } catch {
+      setAuthError("验证失败，请稍后重试");
+    }
+  };
 
   const openTest = (model: MergedModel, platform: PlatformKey) => {
     setTestModel(model);
@@ -427,7 +495,7 @@ export default function Maintenance() {
 
       const applyResp = await fetch("/api/maintenance/apply", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getMaintenanceHeaders() },
         body: JSON.stringify({ models: docModels }),
         signal: AbortSignal.timeout(45000),
       });
@@ -463,7 +531,7 @@ export default function Maintenance() {
     try {
       const resp = await fetch("/api/maintenance/remove", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getMaintenanceHeaders() },
         body: JSON.stringify({ key: target.key, platform }),
         signal: AbortSignal.timeout(30000),
       });
@@ -503,7 +571,7 @@ export default function Maintenance() {
     try {
       const resp = await fetch("/api/maintenance/remove", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getMaintenanceHeaders() },
         body: JSON.stringify({ key: model.key, platform }),
         signal: AbortSignal.timeout(30000),
       });
@@ -665,6 +733,47 @@ export default function Maintenance() {
             await reloadLocal(true);
           }}
         />
+      )}
+
+      {authRequired && !isAuthenticated && !authChecking && (
+        <div className="maint-report-mask" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+          <section className="settings-dialog pricing-dialog" style={{ maxWidth: 420 }}>
+            <div className="dialog-heading">
+              <div className="dialog-title">
+                <div className="dialog-icon" style={{ borderColor: "var(--orange)", color: "var(--orange)" }}>
+                  <Lock size={18} />
+                </div>
+                <div>
+                  <p className="eyebrow">ACCESS CONTROL / 访问认证</p>
+                  <h2 id="auth-modal-title">请输入维护密码</h2>
+                </div>
+              </div>
+            </div>
+
+            <p className="dialog-intro">
+              当前环境已启用模型维护认证保护，输入密码后可修改价格、同步官方数据及新增/删除模型。
+            </p>
+
+            <form onSubmit={handleVerify} className="pricing-grid" style={{ gridTemplateColumns: "1fr", marginTop: 12 }}>
+              <div className="pricing-field">
+                <span>维护管理密码</span>
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="输入 MAINTENANCE_PASSWORD"
+                  autoFocus
+                />
+              </div>
+              {authError && <p style={{ color: "#d06060", fontSize: 13, margin: 0 }}>{authError}</p>}
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <button className="primary-button" type="submit" style={{ flex: 1, justifyContent: "center" }}>
+                  <ShieldCheck size={16} /> 验证并解锁
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
 
       {report && (

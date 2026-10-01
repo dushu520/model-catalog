@@ -176,11 +176,13 @@ function readChoiceText(payload: unknown): string {
   return "";
 }
 
+import { getMaintenanceHeaders } from "@/lib/maint-auth";
+
 // 写入数据文件
 async function applyModels(records: unknown[]): Promise<MergedModel[]> {
   const resp = await fetch("/api/maintenance/apply", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getMaintenanceHeaders() },
     body: JSON.stringify({ models: records }),
     signal: AbortSignal.timeout(30000),
   });

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Save, Tag, X } from "lucide-react";
 import { toast } from "sonner";
 import { MergedModel, PlatformKey, PLATFORM_META } from "@/lib/model-catalog";
+import { getMaintenanceHeaders } from "@/lib/maint-auth";
 
 const PRICE_FIELDS = [
   { key: "input", label: "输入 / M" },
@@ -98,7 +99,7 @@ export default function PricingDialog({ model, platform, onClose, onSaved }: Pri
     try {
       const resp = await fetch("/api/maintenance/pricing", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getMaintenanceHeaders() },
         body: JSON.stringify({ key: model.key, platform, tierIndex, ...patch, monthly_usd: parsedMonthly }),
         signal: AbortSignal.timeout(30000),
       });
