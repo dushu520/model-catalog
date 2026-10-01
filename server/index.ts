@@ -1,4 +1,6 @@
-import express, { type Request, type Response } from "express";
+import express from "express";
+type Request = any;
+type Response = any;
 import { createServer } from "http";
 import fs from "fs";
 import path from "path";
