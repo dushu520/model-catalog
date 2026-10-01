@@ -4,6 +4,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import defaultCatalog from "../client/src/data/models.merged.json" with { type: "json" };
+import defaultFavorites from "../client/src/data/models.favorite.json" with { type: "json" };
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -244,16 +247,23 @@ const REDIS_FAVORITES_KEY = "model-catalog:models.favorite:v1";
 
 function loadCatalogLocal(): { meta: Record<string, any>; models: Record<string, any> } {
   try {
-    const raw = fs.readFileSync(DATA_FILE, "utf-8");
-    const parsed = JSON.parse(raw);
-    return {
-      meta: parsed.meta ?? {},
-      models: parsed.models ?? {},
-    };
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.models) {
+        return {
+          meta: parsed.meta ?? {},
+          models: parsed.models ?? {},
+        };
+      }
+    }
   } catch (err) {
-    console.error("loadCatalogLocal failed:", err);
-    return { meta: {}, models: {} };
+    console.warn("loadCatalogLocal fs read failed, using bundled default:", err);
   }
+  return {
+    meta: (defaultCatalog as any).meta ?? {},
+    models: (defaultCatalog as any).models ?? {},
+  };
 }
 
 async function loadCatalog(): Promise<{ meta: Record<string, any>; models: Record<string, any> }> {
@@ -557,8 +567,12 @@ async function startServer() {
       return;
     }
     try {
-      const merged = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as { meta?: Record<string, any>; models?: Record<string, Record<string, any>> };
-      const store: Record<string, Record<string, any>> = { ...(merged.models ?? {}), ...models };
+      const current = await loadCatalog();
+      const store: Record<string, Record<string, any>> = { ...(current.models ?? {}), ...models };
+      const merged: { meta: Record<string, any>; models: Record<string, any> } = {
+        meta: { ...(current.meta ?? {}) },
+        models: store,
+      };
       const byKey: Record<string, string> = {};
       for (const k of Object.keys(store)) byKey[normId(k)] = k;
       const actions: string[] = [];
@@ -608,8 +622,12 @@ async function startServer() {
       return;
     }
     try {
-      const merged = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as { meta?: Record<string, any>; models?: Record<string, Record<string, any>> };
-      const store: Record<string, Record<string, any>> = { ...(merged.models ?? {}), ...models };
+      const current = await loadCatalog();
+      const store: Record<string, Record<string, any>> = { ...(current.models ?? {}), ...models };
+      const merged: { meta: Record<string, any>; models: Record<string, any> } = {
+        meta: { ...(current.meta ?? {}) },
+        models: store,
+      };
       const byKey: Record<string, string> = {};
       for (const k of Object.keys(store)) byKey[normId(k)] = k;
       const target = byKey[normId(key)];
@@ -688,8 +706,12 @@ async function startServer() {
     }
 
     try {
-      const merged = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as { meta?: Record<string, any>; models?: Record<string, Record<string, any>> };
-      const store: Record<string, Record<string, any>> = { ...(merged.models ?? {}), ...models };
+      const current = await loadCatalog();
+      const store: Record<string, Record<string, any>> = { ...(current.models ?? {}), ...models };
+      const merged: { meta: Record<string, any>; models: Record<string, any> } = {
+        meta: { ...(current.meta ?? {}) },
+        models: store,
+      };
       const byKey: Record<string, string> = {};
       for (const k of Object.keys(store)) byKey[normId(k)] = k;
       const target = byKey[normId(key)];

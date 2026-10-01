@@ -184,7 +184,13 @@ async function applyModels(records: unknown[]): Promise<MergedModel[]> {
     body: JSON.stringify({ models: records }),
     signal: AbortSignal.timeout(30000),
   });
-  const body = (await resp.json()) as { ok?: boolean; error?: string; updated?: Array<{ model: MergedModel }> };
+  const text = await resp.text();
+  let body: { ok?: boolean; error?: string; updated?: Array<{ model: MergedModel }> } = {};
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(`服务响应异常 (${resp.status}): ${text.slice(0, 100)}`);
+  }
   if (!resp.ok || !body.ok) throw new Error(body.error ?? `写入失败 ${resp.status}`);
   return (body.updated ?? []).map((u) => u.model);
 }
