@@ -195,11 +195,35 @@ async function applyModels(records: unknown[]): Promise<MergedModel[]> {
   return (body.updated ?? []).map((u) => u.model);
 }
 
-// 单个模型：优先 LLM 提取参数，失败或超时则采用保底机制写入 data 文件
+// 单个模型：针对 CommandCode 优先从服务端直接抓取官方 Next.js RSC 精准价格，避免 LLM 遗漏与未设置
 async function runItem(item: QueueItem, ccKey: string): Promise<MergedModel[]> {
   let records: unknown[] | null = null;
 
-  if (ccKey) {
+  // 1. CommandCode 平台：优先调用官方文档底层流式接口提取 100% 精确参数
+  if (item.platform === "cmdc") {
+    try {
+      const resp = await fetch("/api/maintenance/doc-models?platform=cmdc", {
+        signal: AbortSignal.timeout(25000),
+      });
+      if (resp.ok) {
+        const body = (await resp.json()) as { models?: Array<Record<string, any>> };
+        const found = (body.models ?? []).find(
+          (m) =>
+            m.id === item.model.id ||
+            m.key === deriveCanonicalKey(item.model.id) ||
+            m.id?.toLowerCase() === item.model.id.toLowerCase()
+        );
+        if (found) {
+          records = [found];
+        }
+      }
+    } catch (e) {
+      console.warn(`[enrich-queue] 直取官方文档数据失败，尝试备用机制:`, e);
+    }
+  }
+
+  // 2. 若未从官方文档接口直接匹配到（或属于 OpenCode 平台），且有 API Key，走 LLM 智能提取
+  if (!records && ccKey) {
     try {
       const resp = await fetch(ENRICH_ENDPOINT, {
         method: "POST",
@@ -225,7 +249,7 @@ async function runItem(item: QueueItem, ccKey: string): Promise<MergedModel[]> {
     }
   }
 
-  // 若 LLM 未提取成功（网络原因、没有key、或LLM拒绝），使用基础兜底结构保证添加成功
+  // 3. 若均未提取成功，使用基础兜底结构保证添加成功（后续可随时重配价格）
   if (!records || records.length === 0) {
     records = [buildFallbackRecord(item.platform, item.model)];
   }

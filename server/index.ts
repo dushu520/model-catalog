@@ -44,6 +44,125 @@ function bareId(value: string): string {
   return value.split("/").pop() ?? value;
 }
 
+export async function fetchCmdcDocModelsDirect(): Promise<Array<Record<string, any>>> {
+  const resp = await fetch("https://commandcode.ai/docs/plans/goat", {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+    signal: AbortSignal.timeout(20000),
+  });
+  const html = await resp.text();
+
+  const regex = /self\.__next_f\.push\(\[1,\s*"(.*?)"\]\)/g;
+  let payload = "";
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) !== null) {
+    try {
+      payload += JSON.parse('"' + match[1] + '"');
+    } catch {}
+  }
+
+  const idx = payload.indexOf('"models":[');
+  if (idx === -1) {
+    throw new Error("Could not find 'models':[] array in CommandCode page RSC stream.");
+  }
+
+  const startBracket = idx + 9;
+  let depth = 0;
+  let endBracket = -1;
+  for (let i = startBracket; i < payload.length; i++) {
+    if (payload[i] === "[") depth++;
+    else if (payload[i] === "]") {
+      depth--;
+      if (depth === 0) {
+        endBracket = i + 1;
+        break;
+      }
+    }
+  }
+
+  if (endBracket === -1) {
+    throw new Error("Malformed models JSON array in CommandCode RSC stream.");
+  }
+
+  const rawJson = payload.substring(startBracket, endBracket).replace(/"\$undefined"/g, "null");
+  const rawModels = JSON.parse(rawJson) as Array<Record<string, any>>;
+
+  const extracted: Array<Record<string, any>> = [];
+  for (const m of rawModels) {
+    const rawId = m.id || m.slug;
+    const bareKey = rawId.includes("/") ? rawId.split("/").pop() : rawId;
+    const canonicalKey = bareKey.toLowerCase();
+
+    const inputCost = m.inputCost ?? 0;
+    const outputCost = m.outputCost ?? 0;
+    const cacheRead = m.cacheReadCost ?? 0;
+    const cacheWrite = m.cacheWriteCost ?? 0;
+
+    const tiers: Array<Record<string, any>> = [];
+    if (Array.isArray(m.tiers)) {
+      for (const t of m.tiers) {
+        const rates = t.rates || {};
+        tiers.push({
+          label: t.label ?? null,
+          context: t.context ?? null,
+          input: rates.input ?? inputCost,
+          output: rates.output ?? outputCost,
+          cache_read: rates.cacheRead ?? cacheRead,
+          cache_write: rates.cacheWrite ?? cacheWrite,
+        });
+      }
+    }
+
+    const pricing: Record<string, any> = {
+      input: inputCost,
+      output: outputCost,
+      cache_read: cacheRead,
+      cache_write: cacheWrite,
+    };
+    if (tiers.length > 0) pricing.tiers = tiers;
+    if (m.timeOfDay) pricing.time_of_day = m.timeOfDay;
+
+    const caps = m.caps || {};
+    const multimodal = ["text"];
+    if (m.vision || caps.vision) multimodal.push("image");
+
+    const monthlyCredits = m.minPlanName === "GOAT" ? 70.0 : 60.0;
+    const allowance = {
+      monthly_usd: monthlyCredits,
+      plan_allowance: {
+        goat: monthlyCredits,
+      },
+    };
+
+    const notes: string[] = [];
+    if (m.deal && typeof m.deal === "object") {
+      notes.push(m.deal.note || m.deal.label || "");
+    }
+    if (m.minPlanName) {
+      notes.push(`Min plan: ${m.minPlanName}`);
+    }
+
+    extracted.push({
+      platform: "cmdc",
+      key: canonicalKey,
+      id: rawId,
+      name: m.name || canonicalKey,
+      provider: m.vendor,
+      category: m.category || "opensource",
+      context_size: m.contextWindow ?? null,
+      multimodal,
+      pricing,
+      allowance,
+      notes: notes.filter(Boolean).join(" · ") || null,
+      deprecated: false,
+    });
+  }
+
+  return extracted;
+}
+
 function readServerKeys(): Record<string, string> {
   const out: Record<string, string> = {};
   try {
@@ -662,6 +781,24 @@ app.get(["/api/models", "/models"], async (req: Request, res: Response) => {
       res.json({ platform: target, count: items.length, items });
     } catch (error) {
       res.status(502).json({ error: error instanceof Error ? error.message : "fetch failed" });
+    }
+  });
+
+  // GET /api/maintenance/doc-models?platform=cmdc
+  // 直接从官方文档 (Next.js RSC 流) 提取 100% 精确的模型元数据和价格配置
+  app.get(["/api/maintenance/doc-models", "/maintenance/doc-models"], async (req: Request, res: Response) => {
+    const platform = String(req.query.platform ?? "").toLowerCase();
+    const target = platform === "cc" || platform === "cmdc" || platform === "commandcode" ? "cmdc" : "";
+    if (!target) {
+      res.status(400).json({ error: "currently only platform=cmdc is supported for direct doc stream extraction" });
+      return;
+    }
+    try {
+      const models = await fetchCmdcDocModelsDirect();
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ platform: target, count: models.length, models });
+    } catch (error) {
+      res.status(502).json({ error: error instanceof Error ? error.message : "failed to fetch doc models" });
     }
   });
 
