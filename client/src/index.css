@@ -652,6 +652,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .maint-identity code { display: block; overflow-wrap: anywhere; color: #a19c91; font-family: "IBM Plex Mono", monospace; font-size: 11px; }
 .maint-hide { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(243,239,231,.25); background: transparent; color: #aaa59b; font-size: 12px; padding: 7px 10px; cursor: pointer; }
 .maint-hide:hover { border-color: var(--orange); color: var(--orange); }
+.maint-del { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(243,239,231,.25); background: transparent; color: #aaa59b; font-size: 12px; padding: 7px 10px; cursor: pointer; transition: color 160ms var(--ease-out), border-color 160ms var(--ease-out), background 160ms var(--ease-out); }
+.maint-del:hover:not(:disabled) { border-color: #d06060; color: #ff7777; background: rgba(220,53,69,.08); }
+.maint-del:disabled { opacity: .5; cursor: wait; }
 .maint-edit { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(243,239,231,.25); background: transparent; color: #aaa59b; font-size: 12px; padding: 7px 10px; cursor: pointer; white-space: nowrap; }
 .maint-edit:hover { border-color: var(--orange); color: var(--orange); }
 .maint-actions { display: inline-flex; align-items: center; gap: 6px; }

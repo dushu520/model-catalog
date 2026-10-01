@@ -183,22 +183,26 @@ function ColumnList({
   models,
   hiddenView,
   favorites,
+  removingKey,
   onHide,
   onUnhide,
   onTest,
   onToggleFavorite,
   onEditPricing,
+  onDelete,
 }: {
   title: string;
   short: string;
   models: MergedModel[];
   hiddenView: boolean;
   favorites: FavoriteRef[];
+  removingKey?: string;
   onHide: (key: string) => void;
   onUnhide: (key: string) => void;
   onTest: (model: MergedModel, platform: PlatformKey) => void;
   onToggleFavorite: (model: MergedModel, platform: PlatformKey) => void;
   onEditPricing: (model: MergedModel, platform: PlatformKey) => void;
+  onDelete: (model: MergedModel, platform: PlatformKey) => void;
 }) {
   if (models.length === 0) {
     return <div className="maint-empty">{hiddenView ? "没有已隐藏的该平台模型。" : "该平台暂无模型。"}</div>;
@@ -240,6 +244,16 @@ function ColumnList({
             >
               {hiddenView ? <Eye size={14} /> : <EyeOff size={14} />}
               {hiddenView ? "恢复" : "隐藏"}
+            </button>
+            <button
+              className="maint-del"
+              type="button"
+              title={`从 ${short} 移除该模型`}
+              disabled={removingKey === `${model.key}-${title}`}
+              onClick={() => onDelete(model, title as PlatformKey)}
+            >
+              {removingKey === `${model.key}-${title}` ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
+              删除
             </button>
           </span>
         </div>
@@ -471,6 +485,38 @@ export default function Maintenance() {
     }
   };
 
+  const handleDeleteModel = async (model: MergedModel, platform: PlatformKey) => {
+    const platformRec = model.platforms[platform];
+    const platformId = platformRec?.id ?? model.key;
+    const isOnlyPlatform = Object.keys(model.platforms).length <= 1;
+    const promptText = isOnlyPlatform
+      ? `确认从 ${PLATFORM_META[platform].label} 移除模型「${model.name}」（${platformId}）吗？\n\n注意：该模型仅在此平台存在，移除后将彻底从目录中删除！`
+      : `确认从 ${PLATFORM_META[platform].label} 移除模型「${model.name}」（${platformId}）吗？\n\n（该模型在其他平台的数据仍会保留）`;
+
+    const sure = window.confirm(promptText);
+    if (!sure) return;
+
+    const opKey = `${model.key}-${platform}`;
+    setRemoving(opKey);
+    try {
+      const resp = await fetch("/api/maintenance/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: model.key, platform }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const body = (await resp.json()) as { ok?: boolean; error?: string; action?: string; deleted?: boolean };
+      if (!resp.ok || !body.ok) throw new Error(body.error ?? `删除失败: ${resp.status}`);
+
+      await reloadLocal(true);
+      toast.success(body.deleted ? `已从目录彻底删除 ${model.name}` : `已从 ${PLATFORM_META[platform].label} 移除 ${model.name}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      setRemoving("");
+    }
+  };
+
   return (
     <div className="catalog-app maint-app">
       <header className="topbar">
@@ -571,11 +617,13 @@ export default function Maintenance() {
                 models={platform === "opencode" ? ocModels : ccModels}
                 hiddenView={showHidden}
                 favorites={favorites}
+                removingKey={removing}
                 onHide={handleHide}
                 onUnhide={handleUnhide}
                 onTest={openTest}
                 onToggleFavorite={handleToggleFavorite}
                 onEditPricing={openPricing}
+                onDelete={handleDeleteModel}
               />
             </div>
           ))}
