@@ -259,15 +259,17 @@ export default function Home() {
 
       <section className="api-note">
         <details>
-          <summary><span className="api-note-mark">i</span>API 说明 <span className="api-note-hint">本目录自带的 HTTP 接口，供脚本 / 工具调用</span><ChevronDown size={14} className="api-note-caret" /></summary>
+          <summary><span className="api-note-mark">i</span>API 说明 <span className="api-note-hint">本目录自带的 HTTP 接口，供脚本 / 工具 / LiteLLM 调用</span><ChevronDown size={14} className="api-note-caret" /></summary>
           <div className="api-note-body">
-            <p>目录服务运行在 <code>http://localhost:3006</code>，返回聚合后的模型数据。只读接口：</p>
+            <p>返回聚合后的模型及价格数据。对外只读接口：</p>
+            <div className="api-endpoint"><code>GET /api/models/prices[?platform=cc|oc]</code><span>LiteLLM 官方标准价格表格式：扁平 map，价格换算为 USD/token，自动映射上下文分档超限价（<code>above_N_tokens</code>）、prompt caching 与多模态视觉/推理支持参数</span></div>
             <div className="api-endpoint"><code>GET /api/models/list</code><span>每平台模型清单：{`{ "opencode": [{id,name},...], "cmdc": [...] }`}（id 为平台真实调用 ID）</span></div>
             <div className="api-endpoint"><code>GET /api/models?platform=oc&amp;model=deepseek</code><span>按平台 / 名称过滤模型记录；platform 支持 oc / opencode / cc / cmdc / cc-goat，model 匹配 key 或名称</span></div>
             <div className="api-endpoint"><code>GET /api/models/favorite?platform=cc-goat</code><span>收藏模型（dsh 等 agent 配置用）：只输出后端持久化的收藏，字段为 id / name / contextWindow / maxTokens / input（输入模态）/ reasoningEfforts（off 恒 null，其余仅输出支持档）；cmdc 对外显示为 cc-goat</span></div>
-            <pre className="api-example">{`curl "http://localhost:3006/api/models/list"
-curl "http://localhost:3006/api/models?platform=cmdc&model=gemini"
-curl "http://localhost:3006/api/models/favorite?platform=cc-goat"`}</pre>
+            <pre className="api-example">{`curl "https://models.99sc.cn/api/models/prices?platform=cc"
+curl "https://models.99sc.cn/api/models/list"
+curl "https://models.99sc.cn/api/models?platform=cmdc&model=gemini"
+curl "https://models.99sc.cn/api/models/favorite?platform=cc-goat"`}</pre>
           </div>
         </details>
       </section>
